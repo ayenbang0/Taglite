@@ -1,7 +1,7 @@
 import {
-  IW, IH, WORLD_W, WORLD_H, RADIUS, ROUND_TIME, GRACE_TIME,
+  WORLD_W, WORLD_H, RADIUS, ROUND_TIME, GRACE_TIME,
   PING_INTERVAL_TAGGER, PING_INTERVAL_RUNNER, PING_SHOW_TIME,
-  CLASSES, MAX_ACTIVE_SLOTS, RARE_PICKUP_CHANCE, setWorldSize, HITSTOP_TAG,
+  MAX_ACTIVE_SLOTS, RARE_PICKUP_CHANCE, setWorldSize, HITSTOP_TAG,
 } from './config.js';
 import { clamp, len, norm, dist } from './math.js';
 import { state } from './state.js';
@@ -10,7 +10,7 @@ import { refreshMods } from './build.js';
 import { buildWalls, buildZones, wallBlocked, segmentBlocked, puSpawnPoints } from './arena.js';
 import { buildPathGrid } from './pathfinding.js';
 import { mapParams } from './mapmods.js';
-import { modeForDuel, enemiesOf, alliesOf, teamOf, draftThresholds } from './modes.js';
+import { MODES, enemiesOf, teamOf, draftThresholds } from './modes.js';
 import {
   updatePhysics, updateSprint, tryDash, tryClassAbility, trySlotAbility,
   tagRadius, applyKnockback, applySlow, applyStagger,
@@ -25,25 +25,37 @@ import {
   resetEffects, updateEffects, updateMagnet, resolveWarps, addChill, updateDecoys,
 } from './effects.js';
 import { COMMON_PICKUPS, RARE_PICKUPS, applyPickup } from './pickups.js';
-import { isAimed, aimRange, aimPoint, arm, disarm } from './targeting.js';
+import { isAimed, aimRange, aimPoint, disarm } from './targeting.js';
 import { render } from './render.js';
 import { updateHud, setDuelHeader, buildAbilityBar } from './hud.js';
-import { showScreen, showAnnounce, renderDraft, renderRunSummary } from './ui.js';
+import { showScreen, showAnnounce, renderDraft } from './ui.js';
 import { rollDraft, applyPick } from './draft.js';
 import { playAnim, updateAnims, resetAnims } from './anim.js';
-import { recordDuel, advanceDuel, duelXp, endRun, draftForAllAI } from './run.js';
-import { awardXp } from './progression.js';
+import { draftForAllAI } from './run.js';
+import { relay, announceFor, announceAll, feed } from './relay.js';
+import {
+  hostTick, hostReset, takeRemoteInput, describeRound,
+  clientBuildWorld, clientStep, clientIntent,
+} from './netsync.js';
+import { onRoundEnd } from './match.js';
+import { updateMatchHud } from './matchhud.js';
+
+relay.localAnnounce = showAnnounce;
+
+const isClient = () => !!state.match && state.match.role === 'client';
+const r2 = v => Math.round(v*100)/100;
 
 /* =========================================================================
-   DUEL SETUP
+   ROUND SETUP
    ========================================================================= */
 function spawnSpots(n){
   // ring the arena so nobody starts on top of anyone else
   const spots = [];
   const cx = WORLD_W/2, cy = WORLD_H/2;
   const rx = WORLD_W*0.38, ry = WORLD_H*0.38;
+  const phase = Math.random()*Math.PI*2;
   for(let i=0;i<n;i++){
-    const a = (i/n)*Math.PI*2 + Math.random()*0.3;
+    const a = phase + (i/n)*Math.PI*2 + Math.random()*0.2;
     let x = clamp(cx + Math.cos(a)*rx, 60, WORLD_W-60);
     let y = clamp(cy + Math.sin(a)*ry, 60, WORLD_H-60);
     // nudge off any wall it happened to land in
@@ -53,56 +65,66 @@ function spawnSpots(n){
     }
     spots.push({x,y});
   }
+  // shuffle so the roster order (humans first) says nothing about where you start
+  for(let i=spots.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [spots[i],spots[j]] = [spots[j],spots[i]];
+  }
   return spots;
 }
 
-function spawnEntities(mode){
-  const run = state.run;
-  const n = mode.entities;
-  const spots = spawnSpots(n);
-
-  // team assignment: `split` on the hunting team, rest are prey, then shuffled
-  // so the player's side is genuinely randomised each duel
-  const teams = [];
-  for(let i=0;i<n;i++) teams.push(i < mode.split ? mode.teams[0] : mode.teams[1]);
-  for(let i=teams.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [teams[i],teams[j]] = [teams[j],teams[i]];
-  }
-
-  const playerIdx = Math.floor(Math.random()*n);
+function spawnEntities(plan){
+  const spots = spawnSpots(plan.entities.length);
   state.entities = [];
-  let aiIdx = 0;
-
-  for(let i=0;i<n;i++){
-    const isPlayer = (i === playerIdx);
-    const clsKey = isPlayer ? run.clsKey : run.aiClasses[aiIdx % run.aiClasses.length];
-    const build  = isPlayer ? run.player : run.aiBuilds[aiIdx % run.aiBuilds.length];
-    const hunting = (teams[i] === mode.teams[0]);
-    // role is known up front so the hunter/prey baseline is folded into mods
-    const e = makeEntity(spots[i].x, spots[i].y, clsKey, !isPlayer, build, hunting);
+  state.player = null;
+  plan.entities.forEach((d, i) => {
+    const e = makeEntity(spots[i].x, spots[i].y, d.clsKey, d.ctrl === 'ai', d.build, d.hunting);
     e.id = i;
-    e.team = teams[i];
-    e.role = teams[i];
-    e.hunting = hunting;
-    if(isPlayer) state.player = e; else aiIdx++;
+    e.team = d.team;
+    e.role = d.team;
+    e.hunting = d.hunting;
+    e.ctrl = d.ctrl;
+    e.pid = d.pid || null;
+    e.name = d.name || '';
+    if(d.ctrl === 'local') state.player = e;
     state.entities.push(e);
-  }
-  state.bot = state.entities.find(e => e.isBot) || null;
+  });
+  state.bot = state.entities.find(e => e.ctrl === 'ai') || null;
 }
 
-export function startDuel(){
+function roundOpeningLine(mode){
+  const p = state.player;
+  if(mode.key==='zombie') return p.hunting ? 'YOU ARE PATIENT ZERO' : 'SURVIVE THE HORDE';
+  if(mode.key==='freeze') return p.hunting ? 'FREEZE THEM ALL' : 'DODGE — AND THAW YOUR TEAM';
+  if(mode.key==='potato') return p.hunting ? 'YOU HAVE THE POTATO' : 'DON\'T GET TAGGED';
+  return p.hunting ? 'YOU ARE THE TAGGER' : 'YOU ARE THE RUNNER';
+}
+
+function startLoop(){
+  state.lastTime = performance.now();
+  if(state.rafId) cancelAnimationFrame(state.rafId);
+  state.rafId = requestAnimationFrame(loop);
+}
+
+/**
+ * HOST: build the world and fighters for one round from the match's plan and
+ * start simulating. Returns the description clients need to build the same
+ * round.  plan = {mode, depth, entities:[{pid,name,clsKey,build,ctrl,hunting,team}],
+ *                 skill, duration, midDrafts, seed, remote}
+ */
+export function startRound(plan){
   const run = state.run;
-  const mode = modeForDuel(run.duel);
+  const mode = plan.mode;
   state.mode = mode;
   setWorldSize(mode.world.w, mode.world.h);
 
-  const params = mapParams(run.duel, run.mods);
+  const params = mapParams(plan.depth, run.mods);
   state.mapParams = params;
 
   state.walls = buildWalls(params.wallVariant);
-  state.theme = themeForDuel(run.duel, state.theme && state.theme.id);
-  state.decor = buildDecor(state.theme, state.walls, mode.world.w, mode.world.h, run.duel*977 + Math.floor(Math.random()*1e6));
+  state.theme = themeForDuel(plan.depth, state.theme && state.theme.id);
+  state.decorSeed = plan.seed;
+  state.decor = buildDecor(state.theme, state.walls, mode.world.w, mode.world.h, plan.seed);
   buildPathGrid();
   buildZones(params);
   state.puSpawnPoints = puSpawnPoints();
@@ -112,6 +134,7 @@ export function startDuel(){
   state.powerups = [];
   state.puTimer = 3 * (params.pickupRateMult===Infinity ? 1 : params.pickupRateMult);
   state.shockwaveFX = [];
+  state.afterImages = [];
   state.rareSpawnedThisDuel = false;
   resetEffects();
   resetFX();
@@ -119,11 +142,11 @@ export function startDuel(){
   disarm();
   state.wallShiftDone = false;
 
-  spawnEntities(mode);
+  spawnEntities(plan);
   snapCamera();
 
-  // bot execution skill scales with run depth (builds scale separately, via drafts)
-  const skill = clamp((run.duel-1)/12, 0, 1);
+  // bot execution skill scales with depth (builds scale separately, via drafts)
+  const skill = plan.skill;
   state.botAI = {
     skill,
     speedMult: 0.85 + skill*0.2,
@@ -134,45 +157,112 @@ export function startDuel(){
     abilityChance: 0.4 + 0.5*skill,
   };
 
-  const duration = mode.duration || ROUND_TIME;
+  const duration = plan.duration || mode.duration || ROUND_TIME;
   state.round = {
     timer: duration, duration, grace: GRACE_TIME, active:true,
-    // remaining-time thresholds still to fire, latest first
-    draftMarks: draftThresholds(mode),
+    // remaining-time thresholds still to fire, latest first (solo gauntlet only)
+    draftMarks: plan.midDrafts ? draftThresholds(mode) : [],
     awaitingDraft:false,
   };
   state.pingTimer = state.player.hunting ? PING_INTERVAL_TAGGER : PING_INTERVAL_RUNNER;
   state.pingShowT = 0;
 
+  relay.active = !!plan.remote;
+  hostReset();
+
   setDuelHeader();
   buildAbilityBar();
-
-  showAnnounce(duelOpeningLine(mode));
+  showAnnounce(roundOpeningLine(mode));
   showScreen('screen-game');
-  state.lastTime = performance.now();
-  if(state.rafId) cancelAnimationFrame(state.rafId);
-  state.rafId = requestAnimationFrame(loop);
+  startLoop();
+  return describeRound();
 }
 
-function duelOpeningLine(mode){
-  const p = state.player;
-  if(mode.key==='zombie') return p.hunting ? 'YOU ARE PATIENT ZERO' : 'SURVIVE THE HORDE';
-  if(mode.key==='freeze') return p.hunting ? 'FREEZE THEM ALL' : 'DODGE — AND THAW YOUR TEAM';
-  return p.hunting ? 'YOU ARE THE TAGGER' : 'YOU ARE THE RUNNER';
+/** CLIENT: build the replica round from the host's description. */
+export function startRoundClient(p, selfPid){
+  const mode = MODES[p.modeKey];
+  state.mode = mode;
+  setWorldSize(p.world.w, p.world.h);
+  clientBuildWorld(p, selfPid);
+  state.mapParams = {pickupRateMult:1, wallShift:false, wallVariant:0};
+  state.puSpawnPoints = [];
+  resetFX();
+  resetAnims();
+  disarm();
+  state.round = {timer:p.timer, duration:p.duration, grace:GRACE_TIME, active:true, draftMarks:[], awaitingDraft:false};
+  state.pingTimer = state.player.hunting ? PING_INTERVAL_TAGGER : PING_INTERVAL_RUNNER;
+  state.pingShowT = 0;
+  state.hitstopT = 0;
+  if(state.run){
+    state.run.player = state.player.build;
+    state.run.mods = (p.mods || []).map(name => ({name}));
+  }
+  snapCamera();
+  setDuelHeader();
+  buildAbilityBar();
+  showAnnounce(roundOpeningLine(mode));
+  showScreen('screen-game');
+  startLoop();
+}
+
+/** Tear down the running round (leaving a match). */
+export function stopRound(){
+  if(state.rafId) cancelAnimationFrame(state.rafId);
+  state.rafId = null;
+  state.round = null;
+  relay.active = false;
+  disarm();
+}
+
+/** HOST: a remote human dropped mid-round - their fighter becomes a bot. */
+export function playerLeft(pid){
+  const e = state.entities.find(x => x.pid === pid);
+  if(!e) return;
+  e.ctrl = 'ai';
+  e.isBot = true;
 }
 
 /* =========================================================================
    MAIN LOOP
    ========================================================================= */
+function tickAnnounce(dt){
+  if(state.announceTimer>0){
+    state.announceTimer -= dt;
+    if(state.announceTimer<=0) document.getElementById('announce').classList.remove('show');
+  }
+}
+
+function tickPing(dt){
+  const player = state.player;
+  state.pingTimer -= dt;
+  if(state.pingTimer<=0){
+    state.pingTimer = player.hunting ? PING_INTERVAL_TAGGER : PING_INTERVAL_RUNNER;
+    state.pingShowT = PING_SHOW_TIME;
+  }
+  state.pingShowT = Math.max(0, state.pingShowT-dt);
+}
+
 function loop(now){
   const dt = Math.min(0.05, (now-state.lastTime)/1000);
   state.lastTime = now;
-  if(state.hitstopT>0){
+  const rd = state.round;
+  if(isClient()){
+    if(rd && rd.active && state.player){
+      clientStep(dt);
+      handlePlayerAbilities();
+      if(rd.grace <= 0) tickPing(dt);
+      tickAnnounce(dt);
+      updateHud();
+      updateMatchHud();
+      render();
+    }
+  } else if(state.hitstopT>0){
     // freeze-frame on impact: keep drawing, skip simulation
     state.hitstopT -= dt;
-    if(state.round && state.round.active) render();
-  } else if(state.round && state.round.active){
+    if(rd && rd.active) render();
+  } else if(rd && rd.active){
     update(dt);
+    hostTick(dt);
     render();
   }
   state.rafId = requestAnimationFrame(loop);
@@ -190,6 +280,24 @@ function nearestEnemy(e){
   return best;
 }
 
+// On a client the cast is only an intent: the host runs it and the result comes back in a snapshot.
+function castClass(p, foe, pt){
+  if(isClient()){
+    if(p.abilityCd>0 && p.clsKey!=='scout') return false;
+    clientIntent({k:'c', pt: pt ? {x:r2(pt.x), y:r2(pt.y)} : null});
+    return true;
+  }
+  return tryClassAbility(p, foe, pt);
+}
+function castSlot(p, s, foe, pt){
+  if(isClient()){
+    if(!p.build.abilities[s] || p.slotCd[s]>0) return false;
+    clientIntent({k:'s', slot:s, pt: pt ? {x:r2(pt.x), y:r2(pt.y)} : null});
+    return true;
+  }
+  return trySlotAbility(p, s, foe, pt);
+}
+
 function handlePlayerAbilities(){
   const p = state.player;
   if(p.frozen) return;
@@ -203,7 +311,7 @@ function handlePlayerAbilities(){
     if(isAimed(p, src)){
       state.aim.armed = (state.aim.armed && state.aim.armed.kind==='class') ? null : src;
     } else {
-      tryClassAbility(p, foe, null);
+      castClass(p, foe, null);
     }
   }
   for(let s=0;s<MAX_ACTIVE_SLOTS;s++){
@@ -214,7 +322,7 @@ function handlePlayerAbilities(){
       state.aim.armed = (state.aim.armed && state.aim.armed.kind==='slot' && state.aim.armed.slot===s)
         ? null : src;
     } else {
-      trySlotAbility(p, s, foe, null);
+      castSlot(p, s, foe, null);
     }
   }
 
@@ -224,11 +332,20 @@ function handlePlayerAbilities(){
     if(armed){
       const pt = aimPoint(p, aimRange(p, armed));
       const ok = armed.kind==='class'
-        ? tryClassAbility(p, foe, pt)
-        : trySlotAbility(p, armed.slot, foe, pt);
+        ? castClass(p, foe, pt)
+        : castSlot(p, armed.slot, foe, pt);
       if(ok) disarm();
     }
   }
+}
+
+/** Clamp a client-supplied aim point to the caster's real range. */
+function clampAim(e, src, pt){
+  if(!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return null;
+  const range = aimRange(e, src);
+  const dx = pt.x - e.x, dy = pt.y - e.y, d = len(dx, dy);
+  if(d > range && d > 0) return {x:e.x + dx*range/d, y:e.y + dy*range/d};
+  return {x:pt.x, y:pt.y};
 }
 
 /* =========================================================================
@@ -366,9 +483,20 @@ function canTag(hunter, prey){
   return true;
 }
 
+function setSide(e, hunting){
+  const mode = state.mode;
+  e.team = hunting ? mode.teams[0] : mode.teams[1];
+  e.role = e.team;
+  e.hunting = hunting;
+  // switching sides switches your baseline too - you now get the other kit
+  refreshMods(e, e.build, hunting);
+  e.quarry = null; e.belief = null; e.currentPath = null;
+}
+
 function onTag(hunter, prey){
   const mode = state.mode;
   hunter.pounceHit = true;
+  hunter.stat.tags++;
   hitstop(HITSTOP_TAG);
   kickShake(3, 0.25);
   state.shockwaveFX.push({x:prey.x,y:prey.y,r:0,maxR:44,t:0});
@@ -377,35 +505,47 @@ function onTag(hunter, prey){
   const impact = norm(prey.x-hunter.x, prey.y-hunter.y);
   playAnim('thrust', hunter, impact);
   playAnim('hit', prey, impact);
+  const hn = hunter.name || hunter.cls.name, pn = prey.name || prey.cls.name;
 
   if(mode.convertOnTag){
     // ZOMBIE TAG: the tagged join the horde and keep playing
-    prey.team = mode.teams[0];
-    prey.role = mode.teams[0];
-    prey.hunting = true;
-    // switching sides switches your baseline too - you now get the hunter kit
-    refreshMods(prey, prey.build, true);
-    prey.quarry = null; prey.belief = null; prey.currentPath = null;
+    hunter.stat.converts++;
+    setSide(prey, true);
     prey.dashIframe = 0.6;                 // a beat to get oriented
-    if(prey === state.player) showAnnounce('YOU TURNED — JOIN THE HORDE');
-    else if(hunter === state.player) showAnnounce('CONVERTED');
+    announceFor(prey, 'YOU TURNED — JOIN THE HORDE');
+    announceFor(hunter, 'CONVERTED');
+    feed(`${hn} INFECTED ${pn}`, '#a8a23f');
     checkWin();
     return;
   }
 
   if(mode.freezeOnTag){
     // FREEZE TAG: frozen solid until a team-mate thaws you
+    hunter.stat.freezes++;
     prey.frozen = true;
     prey.thawProgress = 0;
     prey.vx = 0; prey.vy = 0;
     prey.burstActive = false;
-    if(prey === state.player) showAnnounce('FROZEN — WAIT FOR A THAW');
+    announceFor(prey, 'FROZEN — WAIT FOR A THAW');
+    feed(`${hn} FROZE ${pn}`, '#8fd6ff');
     checkWin();
     return;
   }
 
+  if(mode.swapOnTag){
+    // HOT POTATO: the tag trades roles. The one who just passed it is briefly untouchable.
+    setSide(hunter, false);
+    setSide(prey, true);
+    hunter.dashIframe = Math.max(hunter.dashIframe, 1.4);
+    announceFor(prey, 'YOU HAVE THE POTATO');
+    announceFor(hunter, 'PASSED IT');
+    feed(`${hn} PASSED IT TO ${pn}`, '#ff9a3c');
+    return;
+  }
+
   // CLASSIC: the tag ends it
-  finishDuel(hunter === state.player);
+  feed(`${hn} TAGGED ${pn}`, '#ff5470');
+  finishRound(hunter.team);
 }
 
 function resolveTags(){
@@ -437,13 +577,15 @@ function updateThaw(dt){
       f.thawProgress += dt;
       if(f.thawProgress >= mode.thawTime){
         f.frozen = false;
+        rescuer.stat.thaws++;
         spawnEventFX('thaw', f.x, f.y, {color:'#8fd6ff'});
         f.thawProgress = 0;
         f.dashIframe = Math.max(f.dashIframe, 0.5);
         rescuer.thawCd = mode.thawCooldown;
         state.shockwaveFX.push({x:f.x,y:f.y,r:0,maxR:40,t:0});
-        if(f === state.player) showAnnounce('THAWED — GO');
-        else if(rescuer === state.player) showAnnounce('ALLY FREED');
+        announceFor(f, 'THAWED — GO');
+        announceFor(rescuer, 'ALLY FREED');
+        feed(`${rescuer.name || rescuer.cls.name} THAWED ${f.name || f.cls.name}`, '#3fe0c5');
       }
       break;
     }
@@ -464,43 +606,51 @@ function checkWin(){
 
   if(mode.convertOnTag){
     const survivors = teamOf(state.entities, mode.teams[1]);
-    if(survivors.length === 0){
-      // the horde got everyone - a win for whoever is currently a zombie
-      finishDuel(state.player.team === mode.teams[0]);
-    }
+    if(survivors.length === 0) finishRound(mode.teams[0]);   // the horde got everyone
     return;
   }
   if(mode.freezeOnTag){
     const runners = teamOf(state.entities, mode.teams[1]);
-    if(runners.length && runners.every(r => r.frozen)){
-      finishDuel(state.player.hunting);
-    }
+    if(runners.length && runners.every(r => r.frozen)) finishRound(mode.teams[0]);
     return;
   }
 }
 
 function onTimeUp(){
   const mode = state.mode;
-  if(mode.convertOnTag){
-    // survivors outlasted the horde
-    finishDuel(state.player.team === mode.teams[1]);
-  } else {
-    // runners outlasted the taggers
-    finishDuel(!state.player.hunting);
-  }
+  // prey outlasted the hunters (hot potato has no winning side: the scoring reads carry times)
+  finishRound(mode.swapOnTag ? null : mode.teams[1]);
+}
+
+/** Decide the round: who won, per-fighter tallies, then hand over to the match. */
+function finishRound(winnerTeam){
+  const round = state.round;
+  if(!round || !round.active) return;
+  round.active = false;
+  disarm();
+  const outcome = {
+    winnerTeam,
+    elapsed: round.duration - round.timer,
+    timeLeft: round.timer,
+    entities: state.entities.map(e => ({
+      id:e.id, pid:e.pid, name:e.name, team:e.team, hunting:e.hunting,
+      tags:e.stat.tags, freezes:e.stat.freezes, thaws:e.stat.thaws,
+      converts:e.stat.converts, carryT:e.stat.carryT,
+    })),
+  };
+  // ship the deciding frame (and the final clock) to the clients
+  hostTick(10);
+  onRoundEnd(outcome);
 }
 
 /* =========================================================================
-   UPDATE TICK
+   UPDATE TICK  (HOST / SOLO)
    ========================================================================= */
-function update(dt){
-  const { round, keys, run } = state;
-  const player = state.player;
-
-  // ---- player ----
+function stepLocal(e, dt){
   // WASD is screen-relative in the isometric view: W is "up the screen"
+  const keys = state.keys;
   let dx=0, dy=0;
-  if(!player.frozen){
+  if(!e.frozen){
     let sx=0, sy=0;
     if(keys['w']||keys['arrowup']) sy -= 1;
     if(keys['s']||keys['arrowdown']) sy += 1;
@@ -508,17 +658,42 @@ function update(dt){
     if(keys['d']||keys['arrowright']) sx += 1;
     if(sx || sy){ const w = inputToWorld(sx, sy); dx = w.x; dy = w.y; }
   }
-  const pSprint = updateSprint(player, !player.frozen && !!keys['shift'], dt);
-  updatePhysics(player, dx, dy, dt, pSprint);
-  if(state.dashPressed){ if(!player.frozen) tryDash(player); state.dashPressed=false; }
+  const sp = updateSprint(e, !e.frozen && !!keys['shift'], dt);
+  updatePhysics(e, dx, dy, dt, sp);
+  if(state.dashPressed){ if(!e.frozen) tryDash(e); state.dashPressed=false; }
   handlePlayerAbilities();
+}
 
-  // ---- every AI ----
+function stepRemote(e, dt){
+  const inp = takeRemoteInput(e.pid);
+  const frozen = e.frozen;
+  const sp = updateSprint(e, !frozen && inp.sprint, dt);
+  updatePhysics(e, frozen ? 0 : inp.x, frozen ? 0 : inp.y, dt, sp);
+  if(frozen) return;
+  const foe = nearestEnemy(e);
+  for(const a of inp.acts){
+    if(a.k === 'd') tryDash(e);
+    else if(a.k === 'c') tryClassAbility(e, foe, clampAim(e, {kind:'class'}, a.pt));
+    else if(a.k === 's'){
+      const s = a.slot|0;
+      if(s >= 0 && s < MAX_ACTIVE_SLOTS) trySlotAbility(e, s, foe, clampAim(e, {kind:'slot', slot:s}, a.pt));
+    }
+  }
+}
+
+function update(dt){
+  const { round } = state;
+  const mode = state.mode;
+
+  // ---- every fighter: local human, remote human or AI ----
   for(const e of state.entities){
-    if(e === player) continue;
-    const intent = updateAI(e, dt);
-    const sp = updateSprint(e, intent.sprint, dt);
-    updatePhysics(e, intent.x, intent.y, dt, sp, state.botAI.speedMult);
+    if(e.ctrl === 'local') stepLocal(e, dt);
+    else if(e.ctrl === 'remote') stepRemote(e, dt);
+    else {
+      const intent = updateAI(e, dt);
+      const sp = updateSprint(e, intent.sprint, dt);
+      updatePhysics(e, intent.x, intent.y, dt, sp, state.botAI.speedMult);
+    }
   }
 
   resolveBodies(dt);
@@ -545,10 +720,12 @@ function update(dt){
   if(state.mapParams.wallShift && !state.wallShiftDone && round.timer < round.duration/2){
     state.wallShiftDone = true;
     state.walls = buildWalls(state.mapParams.wallVariant === 1 ? 0 : 1);
-    state.decor = buildDecor(state.theme, state.walls, WORLD_W, WORLD_H, state.run.duel*977 + 13);
+    state.decorSeed = state.decorSeed + 13;
+    state.decor = buildDecor(state.theme, state.walls, WORLD_W, WORLD_H, state.decorSeed);
     buildPathGrid();
     for(const e of state.entities) e.currentPath = null;
-    showAnnounce('THE WALLS MOVE');
+    if(relay.active) relay.queue.push({n:'walls', a:[state.walls.map(w => ({...w})), state.decorSeed]});
+    announceAll('THE WALLS MOVE');
   }
 
   for(let i=state.tempZones.length-1;i>=0;i--){
@@ -575,13 +752,11 @@ function update(dt){
     round.grace -= dt;
   } else {
     round.timer -= dt;
+    tickPing(dt);
 
-    state.pingTimer -= dt;
-    if(state.pingTimer<=0){
-      state.pingTimer = player.hunting ? PING_INTERVAL_TAGGER : PING_INTERVAL_RUNNER;
-      state.pingShowT = PING_SHOW_TIME;
+    if(mode.swapOnTag){
+      for(const e of state.entities) if(e.hunting) e.stat.carryT += dt;
     }
-    state.pingShowT = Math.max(0, state.pingShowT-dt);
 
     updateThaw(dt);
     resolveTags();
@@ -589,7 +764,7 @@ function update(dt){
     checkWin();
     if(!round.active) return;
 
-    // in-duel upgrade marks (one for Classic, two for the longer modes)
+    // in-duel upgrade marks (solo gauntlet only: online rounds draft between rounds)
     if(round.draftMarks.length && round.timer <= round.draftMarks[0]){
       round.draftMarks.shift();
       openMidDraft();
@@ -603,14 +778,10 @@ function update(dt){
     }
   }
 
-  if(state.announceTimer>0){
-    state.announceTimer -= dt;
-    if(state.announceTimer<=0) document.getElementById('announce').classList.remove('show');
-  }
-
+  tickAnnounce(dt);
   updateCamera(dt);
-
   updateHud();
+  updateMatchHud();
 }
 
 function onBoltHit(owner, hit){
@@ -644,8 +815,8 @@ function updatePowerups(dt, entities){
         const rare = !state.rareSpawnedThisDuel && Math.random() < RARE_PICKUP_CHANCE;
         let table = COMMON_PICKUPS;
         if(rare){
-          // uniform over artifacts the human doesn't own yet; full table once they own them all
-          const owned = state.run.player.artifacts;
+          // uniform over artifacts the local human doesn't own yet; full table once they own them all
+          const owned = state.player.build.artifacts;
           const unowned = RARE_PICKUPS.filter(d => !owned.includes(d.id));
           table = unowned.length ? unowned : RARE_PICKUPS;
         }
@@ -670,7 +841,7 @@ function updatePowerups(dt, entities){
 }
 
 /* =========================================================================
-   DRAFTS
+   MID-ROUND UPGRADE  (solo gauntlet only: the clock pauses for the pick)
    ========================================================================= */
 function openMidDraft(){
   const run = state.run;
@@ -680,17 +851,17 @@ function openMidDraft(){
 
   const roll = ()=>{
     const options = rollDraft(run.player, state.player.mods, run.duel);
-    if(!options.length){ resumeDuel(); return; }
+    if(!options.length){ resumeRound(); return; }
     renderDraft(options, opt=>{
       applyPick(run.player, opt);
-      // the upgrade is live for the rest of THIS duel
+      // the upgrade is live for the rest of THIS round
       refreshMods(state.player, run.player);
       draftForAllAI(run);
       for(const e of state.entities){
         if(e !== state.player) refreshMods(e, e.build);
       }
       buildAbilityBar();
-      resumeDuel();
+      resumeRound();
     }, ()=>{
       if(run.rerolls>0){ run.rerolls--; roll(); }
     }, {mid:true});
@@ -700,61 +871,12 @@ function openMidDraft(){
   showScreen('screen-draft');
 }
 
-function resumeDuel(){
+function resumeRound(){
   state.round.awaitingDraft = false;
   state.round.active = true;
   state.lastTime = performance.now();
   showScreen('screen-game');
   showAnnounce('BACK TO IT');
-}
-
-function finishDuel(playerWon){
-  const run = state.run;
-  if(!state.round.active) return;
-  state.round.active = false;
-  disarm();
-
-  recordDuel(run, playerWon, state.player.role, state.round.timer, state.mode.name);
-
-  const xp = duelXp(run, playerWon);
-  run.xpEarned += xp;
-  awardXp(xp);
-
-  if(playerWon) openDraft();
-  else {
-    const result = endRun(run);
-    renderRunSummary(result);
-    showScreen('screen-end');
-  }
-}
-
-function openDraft(){
-  const run = state.run;
-  const roll = ()=>{
-    const options = rollDraft(run.player, state.player.mods, run.duel);
-    if(!options.length){ nextDuel(); return; }
-    renderDraft(options, opt=>{
-      applyPick(run.player, opt);
-      nextDuel();
-    }, ()=>{
-      if(run.rerolls>0){ run.rerolls--; roll(); }
-    });
-  };
-  roll();
-  document.getElementById('draft-result').textContent = duelWinLine();
-  showScreen('screen-draft');
-}
-
-function duelWinLine(){
-  const mode = state.mode;
-  if(mode.key==='zombie') return state.player.team==='zombie' ? 'HORDE WINS' : 'YOU SURVIVED';
-  if(mode.key==='freeze') return state.player.hunting ? 'ALL FROZEN' : 'TEAM SURVIVED';
-  return state.player.hunting ? 'TAGGED THEM' : 'SURVIVED';
-}
-
-function nextDuel(){
-  advanceDuel(state.run);
-  startDuel();
 }
 
 /**
@@ -765,6 +887,7 @@ function nextDuel(){
 export function devStep(dt){
   if(state.round && state.round.active){
     update(dt || 1/60);
+    hostTick(dt || 1/60);
     render();
   }
 }

@@ -19,6 +19,7 @@ import { IW, IH, ISO_X, ISO_Y, ISO_Z, RADIUS, ROUND_TIME } from './config.js';
 import { state } from './state.js';
 import { groundArc, pixelLine } from './iso.js';
 import { shade, hash3 } from './voxel.js';
+import { emitEvt } from './relay.js';
 
 const PCAP = 600;      // live particle cap
 const GCAP = 140;      // live ground items
@@ -1316,6 +1317,7 @@ const CLS = {
 /* ------------------------------ public API ------------------------------ */
 export function spawnAbilityFX(e, id, info){
   if(!e) return;
+  emitEvt('spawnAbilityFX', e, id, info);
   try{
     const c = ctxOf(e, info);
     const f = AB[id];
@@ -1328,6 +1330,7 @@ export function spawnAbilityFX(e, id, info){
 
 export function spawnClassFX(e, clsKey, info){
   if(!e) return;
+  emitEvt('spawnClassFX', e, clsKey, info);
   try{
     const c = ctxOf(e, info);
     const f = CLS[clsKey];
@@ -1489,6 +1492,7 @@ function eventStars(x, y){
 }
 
 export function spawnEventFX(kind, x, y, opts){
+  emitEvt('spawnEventFX', kind, x, y, opts);
   try{
     const f = EV[kind];
     const o = opts || EMPTY;

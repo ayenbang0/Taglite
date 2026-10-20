@@ -10,7 +10,7 @@ import { RARITY } from './config.js';
 import { norm } from './math.js';
 import { makeDecoy } from './entity.js';
 import { state } from './state.js';
-import { showAnnounce } from './ui.js';
+import { announceFor } from './relay.js';
 import { spawnEventFX } from './fx.js';
 
 function burst(e,color){
@@ -139,9 +139,9 @@ export function applyPickup(e, id){
     // pushing here persists it for the rest of the run.
     if(e.build){
       e.build.artifacts.push(id);
-      if(e===state.player && completedSets(e.build.artifacts).length > setsBefore){
+      if(completedSets(e.build.artifacts).length > setsBefore){
         const done = completedSets(e.build.artifacts);
-        showAnnounce('SET COMPLETE: ' + done[done.length-1].name);
+        announceFor(e, 'SET COMPLETE: ' + done[done.length-1].name);
       }
       e.pendingRebuild = true;
     }

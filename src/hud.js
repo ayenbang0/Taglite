@@ -181,6 +181,13 @@ export function updateHud(){
     }
   }
 
+  // roles can flip mid-round (zombie conversion, hot potato), so the banner tracks them
+  const banner = document.getElementById('role-banner');
+  if(banner.dataset.role !== player.role){
+    banner.dataset.role = player.role;
+    banner.textContent = player.role.toUpperCase();
+    banner.className = 'pixel-font ' + (player.hunting ? 'tagger' : 'runner');
+  }
   document.getElementById('duel-num').textContent = run.duel;
   document.getElementById('team-status').textContent = teamStatusLine();
 
@@ -193,6 +200,7 @@ export function setDuelHeader(){
   const { player, run, mode } = state;
   const banner = document.getElementById('role-banner');
   banner.textContent = player.role.toUpperCase();
+  banner.dataset.role = player.role;
   // reuse the existing two banner styles: hunters read danger, prey read safe
   banner.className = 'pixel-font ' + (player.hunting ? 'tagger' : 'runner');
 
@@ -220,6 +228,10 @@ function teamStatusLine(){
     const runners = entities.filter(e=>e.team===mode.teams[1]);
     const frozen = runners.filter(e=>e.frozen).length;
     return `${frozen}/${runners.length} FROZEN`;
+  }
+  if(mode.swapOnTag){
+    const c = entities.find(e => e.hunting);
+    return c ? (c === player ? 'YOU HAVE IT' : `${c.name || c.cls.name} HAS IT`) : '';
   }
   return '';
 }

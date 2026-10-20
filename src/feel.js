@@ -3,18 +3,23 @@ import { clamp } from './math.js';
 import { state } from './state.js';
 import { screenToWorld } from './iso.js';
 import { updateFX } from './fx.js';
+import { emitEvt, relay } from './relay.js';
 import { updateAmbient } from './themes.js';
 
 /* Game-feel helpers: screen shake, hit-stop, smoothed camera, and the small
    ambient motion that makes running read as running (footfalls, speed lines). */
 
 export function kickShake(mag, t){
+  if(mag >= 2) emitEvt('kickShake', mag, t);
   const s = state.shake;
   if(s.t > 0 && s.mag > mag) return;   // never downgrade a bigger shake in progress
   state.shake = {t, mag};
 }
 
 export function hitstop(t){
+  // a freeze-frame stalls the whole host simulation, so it is skipped
+  // whenever other humans are connected - nobody else asked for it
+  if(relay.active) return;
   state.hitstopT = Math.max(state.hitstopT, t);
 }
 

@@ -35,6 +35,9 @@ export function makeEntity(x,y,clsKey,isBot,buildState,hunting){
     thawProgress:0,   // how far a rescue on THIS entity has got
     thawCd:0,         // how long until this entity can thaw someone again
     id:0,
+    ctrl: isBot ? 'ai' : 'local',   // 'local' (this machine) | 'remote' (another human) | 'ai'
+    pid:null, name:'',              // owning human's player id + display name
+    stat:{tags:0, freezes:0, thaws:0, converts:0, carryT:0},   // per-round tallies for scoring
 
     dashCd:0, dashLockT:0, dashIframe:0, dashBurstT:0,
     dashCharges: mods.dashCharges, dashChargesMax: mods.dashCharges,

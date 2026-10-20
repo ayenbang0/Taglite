@@ -69,6 +69,9 @@ export const state = {
   camera: {x:0,y:0},   // world point at the centre of the screen (isometric view)
   theme: null,         // current map theme (themes.js)
   decor: [],           // non-colliding floor decor for this map
+  decorSeed: 0,        // seed that regenerates `decor` identically on every peer
+  match: null,         // online/solo match view-model (match.js)
+  publicGames: [],     // public lobby list while browsing
   shake: {t:0, mag:0},   // screen shake (feel.js)
   hitstopT: 0,           // freeze-frame time remaining (round.js loop)
   keys: {},

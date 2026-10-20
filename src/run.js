@@ -10,8 +10,8 @@ import { botDraft } from './draft.js';
 import { awardXp, unlockedClasses } from './progression.js';
 import { state } from './state.js';
 
-// enough independent AI builds for the largest mode (Freeze Tag: 6 bots)
-export const MAX_AI = 6;
+// enough independent AI builds for the largest online roster
+export const MAX_AI = 9;
 
 export function startRun(clsKey){
   state.run = {
@@ -66,9 +66,9 @@ export function advanceDuel(run){
 }
 
 /** One draft pick for each AI in the roster. */
-export function draftForAllAI(run){
+export function draftForAllAI(run, depth){
   for(const build of run.aiBuilds){
-    botDraft(run, build);
+    botDraft(run, build, depth);
   }
 }
 

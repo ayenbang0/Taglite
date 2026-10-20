@@ -3,9 +3,13 @@ import '@fontsource/vt323';
 import { MAX_ACTIVE_SLOTS, IW, IH } from './config.js';
 import { state } from './state.js';
 import { loadAccount } from './progression.js';
-import { renderClassGrid, refreshLevelBadge, showScreen, getSelectedClass } from './ui.js';
-import { startRun } from './run.js';
-import { startDuel, devStep } from './round.js';
+import { renderClassGrid, refreshLevelBadge } from './ui.js';
+import * as match from './match.js';
+import { startSolo } from './match.js';
+import { netStats } from './netsync.js';
+import { bus } from './bus.js';
+import { devStep } from './round.js';
+import { initOnlineUi } from './onlineui.js';
 import { initTargeting } from './targeting.js';
 import { canvas } from './render.js';
 
@@ -32,22 +36,7 @@ function fitCanvas(){
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
 
-document.getElementById('btn-start').onclick = ()=>{
-  startRun(getSelectedClass());
-  startDuel();
-};
-document.getElementById('btn-menu').onclick = ()=>{
-  if(state.rafId) cancelAnimationFrame(state.rafId);
-  state.rafId = null;
-  state.round = null;
-  refreshLevelBadge();
-  renderClassGrid();
-  showScreen('screen-menu');
-};
-document.getElementById('btn-again').onclick = ()=>{
-  startRun(state.run ? state.run.clsKey : getSelectedClass());
-  startDuel();
-};
+initOnlineUi();
 
 /* =========================================================================
    INPUT
@@ -73,16 +62,13 @@ window.addEventListener('blur', ()=>{ state.keys={}; });
    game can be driven from the console while testing the run loop.
    ========================================================================= */
 if(import.meta.env && import.meta.env.DEV){
-  const setup = ({cls='rogue', duel=1, abilities=[], passives=[], artifacts=[]} = {})=>{
-    startRun(cls);
-    Object.assign(state.run.player, {abilities, passives, artifacts});
-    state.run.duel = duel;
-    startDuel();
+  const setup = ({cls='rogue', mode='gauntlet', round=1, abilities=[], passives=[], artifacts=[]} = {})=>{
+    startSolo(mode, {cls, round, build:{abilities, passives, artifacts}});
   };
   const sim = (seconds)=>{
     const n = Math.round(seconds*60);
     for(let i=0;i<n;i++) devStep(1/60);
     return {ok:true};
   };
-  window.__taglite = { state, devStep, setup, sim };
+  window.__taglite = { ...(window.__taglite||{}), state, devStep, setup, sim, match, bus, netStats };
 }

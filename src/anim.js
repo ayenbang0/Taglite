@@ -22,6 +22,7 @@
    ========================================================================= */
 import { norm, len, clamp } from './math.js';
 import { project, groundRing, pixelLine } from './iso.js';
+import { emitEvt } from './relay.js';
 
 /* ---- iso drawing helpers: all world-space, pixel crisp ---- */
 function setA(ctx, a){ ctx.globalAlpha = clamp(a, 0, 1); }
@@ -256,6 +257,7 @@ export function archetypeForClass(clsKey){ return CLASS_ANIM[clsKey] || 'cast'; 
 export function playAnim(kind, owner, dir, color){
   const arch = ARCHETYPES[kind];
   if(!arch || !owner) return;
+  emitEvt('playAnim', kind, owner, dir, color);
   const d = dir && (dir.x || dir.y) ? norm(dir.x, dir.y) : {x:1, y:0};
   // one animation per entity at a time: a new cast overrides a stale recovery
   for(let i=anims.length-1;i>=0;i--){

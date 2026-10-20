@@ -5,7 +5,7 @@ import { RARE_BY_ID, ARTIFACT_SETS } from './pickups.js';
 import { RARITY } from './rarity.js';
 import { optionInfo } from './draft.js';
 import { isClassUnlocked, xpProgress, nextUnlockHint } from './progression.js';
-import { modeForDuel, nextModeLabel } from './modes.js';
+import { MODES, modeForDuel, nextModeLabel } from './modes.js';
 import { state } from './state.js';
 import { iconCanvas } from './icons.js';
 import { previewSprite } from './voxelmodels.js';
@@ -13,14 +13,17 @@ import { tint } from './voxel.js';
 
 let selectedClass = 'rogue';
 export function getSelectedClass(){ return selectedClass; }
+export function setSelectedClass(key){ selectedClass = key; }
 
 /* =========================================================================
    CLASS SELECT
    ========================================================================= */
 /* ---- class-card turntables: ONE shared interval repaints every preview canvas ----
-   idle frames animate at ~4.4 fps; the facing advances every second tick (450ms). */
+   idle frames animate at ~4.4 fps; the facing advances every second tick (450ms).
+   Previews are registered per GROUP (menu grid, lobby cards, results podium) so a
+   screen can swap its own set without disturbing the others. */
 const TURN_TICK_MS = 225;
-let previews = [];          // { canvas, key, color, locked }
+const previewGroups = new Map();   // group -> [{ canvas, key, color, locked }]
 let turnTick = 0;
 let turnTimer = null;
 const silhouetteCache = new Map();
@@ -32,7 +35,7 @@ function silhouetteOf(spr, id, facing, frame){
   return c;
 }
 
-function paintPreview(p){
+export function paintPreview(p){
   const ctx = p.canvas.getContext('2d');
   const W = p.canvas.width, H = p.canvas.height;
   const facing = Math.floor(turnTick/2) % 4;
@@ -53,21 +56,30 @@ function paintPreview(p){
   ctx.drawImage(img, Math.round(gx - spr.ax), Math.round(gy - spr.ay));
 }
 
+/** Replace one group's previews (paints them once immediately). */
+export function setPreviews(group, list){
+  previewGroups.set(group, list);
+  for(const p of list) paintPreview(p);
+  ensureTurntable();
+}
+
 function ensureTurntable(){
   if(turnTimer) return;
   turnTimer = setInterval(()=>{
-    if(!previews.length) return;
-    const menu = document.getElementById('screen-menu');
-    if(!menu || !menu.classList.contains('active')) return;
     turnTick++;
-    for(const p of previews) paintPreview(p);
+    for(const list of previewGroups.values()){
+      for(const p of list){
+        const scr = p.canvas.closest('.screen');
+        if(scr && scr.classList.contains('active')) paintPreview(p);
+      }
+    }
   }, TURN_TICK_MS);
 }
 
 export function renderClassGrid(){
   const grid = document.getElementById('class-grid');
   grid.innerHTML = '';
-  previews = [];
+  const list = [];
   Object.values(CLASSES).forEach(c=>{
     const unlocked = isClassUnlocked(c.key);
     const card = document.createElement('div');
@@ -100,10 +112,9 @@ export function renderClassGrid(){
     if(unlocked) card.onclick = ()=>{ selectedClass = c.key; renderClassGrid(); };
     grid.appendChild(card);
     const p = { canvas:card.querySelector('canvas.preview'), key:c.key, color:c.color, locked:!unlocked };
-    previews.push(p);
-    paintPreview(p);
+    list.push(p);
   });
-  ensureTurntable();
+  setPreviews('menu', list);
 }
 
 export function refreshLevelBadge(){
@@ -172,17 +183,22 @@ export function renderDraft(options, onPick, onReroll, opts){
   // coming, so you can draft deliberately for the next mode
   const mid = !!(opts && opts.mid);
   const sub = document.getElementById('draft-sub-line');
+  const mt = state.match;
+  const series = !!mt && mt.settings.mode !== 'gauntlet';
+  const noun = series ? 'ROUND' : 'DUEL';
   sub.innerHTML = mid
-    ? `DUEL <b>${state.run.duel}</b> HALFTIME &mdash; TAKE ONE, THEN BACK IN`
-    : `DUEL <b>${state.run.duel}</b> CLEARED &mdash; TAKE ONE`;
+    ? `${noun} <b>${state.run.duel}</b> HALFTIME &mdash; TAKE ONE, THEN BACK IN`
+    : `${noun} <b>${state.run.duel}</b> DONE &mdash; TAKE ONE`;
 
   const nextEl = document.getElementById('draft-next');
   if(mid){
     nextEl.textContent = '';
     nextEl.style.display = 'none';
   } else {
-    const m = modeForDuel(state.run.duel + 1);
-    nextEl.textContent = nextModeLabel(state.run.duel);
+    const m = series ? MODES[mt.settings.mode] : modeForDuel(state.run.duel + 1);
+    nextEl.textContent = series
+      ? (state.run.duel >= mt.totalRounds ? '' : `NEXT: ROUND ${state.run.duel + 1} OF ${mt.totalRounds} - ${m.online ? m.online.name : m.name}`)
+      : nextModeLabel(state.run.duel);
     nextEl.style.color = m.color;
     nextEl.style.display = 'block';
   }
@@ -259,36 +275,6 @@ export function renderBuildStrip(elId, build){
     e.textContent = 'NO PICKS YET';
     el.appendChild(e);
   }
-}
-
-/* =========================================================================
-   RUN SUMMARY
-   ========================================================================= */
-export function renderRunSummary(result){
-  const run = state.run;
-  document.getElementById('end-result').textContent = 'RUN OVER';
-  document.getElementById('end-result').className = 'pixel-font lose';
-  document.getElementById('end-sub').textContent =
-    `${CLASSES[run.clsKey].name} · survived ${result.survived} duel${result.survived===1?'':'s'}`;
-  document.getElementById('xp-row').textContent =
-    `+${run.xpEarned} XP earned  ·  best run: ${state.account.best||0}`;
-
-  renderBuildStrip('end-build', run.player);
-
-  const log = document.getElementById('run-log');
-  log.innerHTML = '';
-  run.history.slice().reverse().forEach(h=>{
-    const row = document.createElement('div');
-    row.className = 'tier' + (h.won?' owned':'');
-    row.innerHTML = `
-      <div class="tinfo">
-        <div class="tname">DUEL ${h.duel} — ${h.won?'WON':'LOST'} as ${h.role.toUpperCase()}</div>
-        <div class="tdesc">${h.mode||'CLASSIC'}${h.mods.length?' · '+h.mods.join(', '):''}</div>
-      </div>
-      <div class="tinfo tright">${h.won? h.timeLeft+'s left' : '—'}</div>
-    `;
-    log.appendChild(row);
-  });
 }
 
 /* =========================================================================

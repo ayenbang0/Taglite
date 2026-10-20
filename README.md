@@ -1,8 +1,10 @@
 # TAGLITE
 
-A roguelike tag game in an **isometric voxel pixel-art** world. Pick a class, then survive an endless string of escalating duels against opponents that build themselves up alongside you. Win a duel, draft an upgrade, face something harder. Lose once and the run is over.
+An online **isometric voxel pixel-art** tag game. Pick a class, join or host a lobby of up to 8 players, and play multi-round matches in four modes — Classic Duel, Infection, Freeze Squads and Hot Potato — drafting upgrades between rounds. Prefer to go it alone? Solo Run is the original endless roguelike climb against ever-stronger bots.
 
-## Play it
+**Play it online:** the game is deployed to GitHub Pages — open the site, hit **PLAY ONLINE**, then **CREATE GAME** and send the room code (or the copy-link button) to a friend. Anyone can also **BROWSE** public games.
+
+## Run it locally
 
 **Double-click `PLAY.bat`.** It installs dependencies on first run, starts the local server, and opens your browser automatically. Keep the window open while you play.
 
@@ -23,6 +25,12 @@ npm run build    # production build to dist/
 npm run preview  # serve the production build
 ```
 
+To test online play on one machine, open two tabs of the dev server: create a game in one, join with its code in the other. In dev, `window.__taglite` exposes `state`, `setup()`, `sim()` and the `match` actions for scripting.
+
+## Deploying
+
+`.github/workflows/deploy.yml` builds the site and publishes it to GitHub Pages on every push to `main`. One-time setup in the repo: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site is then served at `https://<user>.github.io/<repo>/`. `vite.config.js` sets `base: './'` so assets resolve under that sub-path, and `?join=CODE` links work from there.
+
 ## Controls
 
 | Key | Action |
@@ -37,26 +45,47 @@ npm run preview  # serve the production build
 
 Aimed abilities arm on keypress and show a reticle plus range ring; click to fire.
 
-## The run
+## Online matches
 
-- **Class is locked at run start.** Your side is re-rolled every duel — you might defend a six-duel lead as prey, then have to close out the next one as the hunter.
-- **Duel length and upgrade timing depend on the mode** (see the table below) — you get picks *during* a duel as well as after winning one.
-- **Win → draft.** Pick 1 of 3 upgrades. Rerolls are limited (1 to start, +1 every 3 duels, cap 3).
-- **Every AI drafts too**, every duel, from the same pool — each with its own independent build and its own re-rolled class. A deep-run horde is a mix of kits, not five clones.
-- **The arena evolves.** Denser hazards from duel 4, one map modifier from duel 7, two from duel 10.
-- **Lose once and the run ends**, with a summary of your build and every duel you played.
+Taglite is a peer-to-peer online game. **One player hosts** — their browser runs the one true simulation — and everyone else joins by room code or from the public list. There is no game server to run: players find each other through public Nostr relays (via [Trystero](https://trystero.dev)) and then talk directly over WebRTC, so the whole thing deploys as a static site.
+
+A **match** is longer than a single duel: lobby → several rounds → results.
+
+1. **Lobby** — pick your class, ready up; the host picks the mode, number of rounds, bot fill and bot difficulty, and can list the game publicly. Up to **8 humans**; bots fill the rest of the roster.
+2. **Rounds** — each round is a full tag game on a freshly rolled map (see Modes). Roles rotate between rounds so everyone plays both sides.
+3. **Intermission** — the round result, points earned, and live standings.
+4. **Draft** — every human picks one of three upgrades at the same time (20s; if you stall you get the first card). Rerolls work as in solo. Bots draft too, so the field keeps pace with you.
+5. **Results** — final standings, XP for your account (placing higher pays more), and a one-click rematch.
+
+Your build is yours for the whole match. Map pickups and rare artifacts persist across its rounds.
+
+**Netcode.** The host streams 20 Hz delta snapshots; clients interpolate other fighters about 110 ms behind and **predict their own movement locally** with the same physics the host runs, so steering and dashing stay sharp. The host reconciles you through input-sequence acks and only nudges you when you drift. Abilities are sent as intents and resolved on the host (aimed ones carry their target point, clamped to the ability's real range). Visual effects, animations, shakes and kill-feed lines are relayed as events, so every screen shows the same fight. A client that disconnects mid-round is replaced by a bot; if the host leaves, the match ends.
+
+Practical notes: the **host's tab must stay visible** (browsers throttle hidden tabs and the round would crawl), and strict NATs can block peer-to-peer connections since no TURN relay is configured.
+
+### Solo
+
+- **Solo Run** is the original roguelike: an endless escalating string of rounds against bots, one loss ends the run. It runs on the same match engine (as a one-player match), so it keeps the mid-round upgrade marks and the mode rotation (Classic → Infection every 3rd → Freeze every 5th → Hot Potato every 7th).
+- **Quick Bots** plays any online mode as a full multi-round match against bots.
 
 ## Modes
 
-Modes are variant duels inside a single run, on a fixed cycle. The draft screen tells you what's coming next, so you can pick upgrades for it.
+| Mode | Fighters | Round | Rounds | Rules |
+|---|---|---|---|---|
+| **Classic Duel** | 2 | 2:00 | 3 / **5** / 7 | 1v1. The tagger wins by tagging, the runner by surviving. Roles swap every round; a match can end early once it's mathematically decided. Round win = 3 pts. |
+| **Infection** (Zombie Tag) | 6+ | 3:00 | 3 / **4** / 5 | One starts infected. Tagged players **turn and keep playing**. Points: +1 per conversion, +3 for surviving to the clock, +2 for each zombie when the horde wins. Patient zero rotates. |
+| **Freeze Squads** | 7+ | 3:00 | 2 / **4** / 6 | About 3 hunt 4. Tagged runners freeze solid and stay rescuable — stand on a frozen ally for 0.5s to thaw them (3s cooldown). Hunters win **only** if every runner is frozen at once. Team win = 3 pts, +1 per freeze, +1 per thaw. Sides rotate. |
+| **Hot Potato** | 6+ | 2:00 | 3 / **4** / 6 | Free-for-all. One carrier at a time; **tag someone to pass it** (the one who just passed it is untouchable for 1.4s). Safe time scores (1 pt per 15s not holding it) and the player who held it least earns +3. |
 
-| Mode | When | Fighters | Length | Upgrades | Rules |
-|---|---|---|---|---|---|
-| **Classic** | default | 2 | 2:00 | at 1:00 | Tag them, or survive the clock. |
-| **Zombie Tag** | every 3rd duel | 6 | 5:00 | at 2:00 and 4:00 | One starts infected. Tagged players **turn and keep playing** — you can still win the duel from inside the horde. Zombies win by converting everyone; survivors win on the clock. |
-| **Freeze Tag** | every 5th duel | 7 | 5:00 | at 2:00 and 4:00 | 3 hunt 4. Tagged runners freeze solid and stay rescuable — stand on a frozen ally for 0.5s to thaw them (3s cooldown between rescues). Hunters win **only** if all 4 are frozen at once, so one free runner keeps the team alive. |
+Solo Run uses the original single-player pacing instead (Classic 2:00, Infection 5:00, Freeze 5:00, Potato 2:00 with in-round upgrade marks at 1:00 / 2:00 + 4:00).
 
-In-duel upgrades pause play, apply immediately for the rest of that duel, and resume with the clock preserved. Every AI drafts at the same marks, so the sides stay symmetric.
+## The run (Solo Run)
+
+- **Class is locked at run start.** Your side is re-rolled every round.
+- **Win → draft.** Pick 1 of 3 upgrades. Rerolls are limited (1 to start, +1 every 3 rounds, cap 3).
+- **Every AI drafts too**, each with its own independent build and re-rolled class.
+- **The arena evolves.** Denser hazards from round 4, one map modifier from round 7, two from round 10.
+- **Lose once and the run ends**, with a summary of your build and the rounds you won.
 
 ## The two sides
 
@@ -176,7 +205,7 @@ Originally one HTML file; split into ES modules under `src/`, wired through a si
 | `src/progression.js` | Account XP, class unlocks, draft-pool width, save/load |
 | `src/arena.js` | Wall layouts, hazard zones, collision queries |
 | `src/anim.js` | Three-beat ability animation, archetypes, hit reactions |
-| `src/modes.js` | Mode definitions, rotation, team helpers |
+| `src/modes.js` | Mode definitions (incl. online metadata), rotation, team helpers |
 | `src/perception.js` | AI belief model — sight, bearing pings, decoy targeting |
 | `src/mapmods.js` | Map evolution bands and modifiers |
 | `src/pathfinding.js` | Walkability grid + bounded BFS for the bot |
@@ -185,7 +214,7 @@ Originally one HTML file; split into ES modules under `src/`, wired through a si
 | `src/targeting.js` | Click-to-target layer |
 | `src/ai.js` | Bot steering, pathing, ability decisions |
 | `src/draft.js` | Draft rolling, rarity weighting, bot counter-drafting |
-| `src/run.js` | Run lifecycle: duels, escalation, XP |
+| `src/run.js` | Bot builds, per-round bot kit re-rolls, solo-gauntlet XP |
 | `src/render.js` | Isometric depth-sorted scene renderer and minimap |
 | `src/iso.js` | Isometric projection, picking and pixel-crisp ground primitives |
 | `src/voxel.js` | Voxel model format and sprite baker |
@@ -196,8 +225,15 @@ Originally one HTML file; split into ES modules under `src/`, wired through a si
 | `src/feel.js` | Camera follow, hit-stop, shake, footfall and speed-line effects |
 | `src/icons.js` | Voxel icon tiles for abilities, passives, artifacts and classes |
 | `src/hud.js` | In-game HUD |
-| `src/ui.js` | Menu, draft screen, run summary |
-| `src/round.js` | Duel setup and the per-frame update tick |
+| `src/ui.js` | Menu, class grid, draft screen |
+| `src/onlineui.js`, `src/matchhud.js` | Online hub, lobby, scorebar/feed, intermission, results |
+| `src/pixicons.js` | Tiny pixel glyphs for the online UI |
+| `src/round.js` | Round setup (host and client) and the per-frame update tick |
+| `src/match.js` | Match core: lobby, rounds, scoring, drafts, results, host/client messages |
+| `src/net.js` | Trystero (WebRTC) transport, rooms, public game list |
+| `src/netsync.js` | Snapshot deltas, interpolation, client-side prediction, input intents |
+| `src/relay.js` | Host-to-client cosmetic event relay (FX, animations, announcements, kill feed) |
+| `src/bus.js` | Tiny event bus between the match core and the UI |
 | `src/main.js` | Entry point and input wiring |
 
 Full design rationale, the multiplayer roadmap, and balance guidelines are in [docs/DESIGN.md](docs/DESIGN.md).

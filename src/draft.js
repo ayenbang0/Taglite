@@ -138,9 +138,9 @@ const TAG_TOOLS = ['a_longarm','a_blinkstrike','a_pierce','a_grapple','a_pounce'
 const ANTI_STEALTH = ['a_mark','p_night','p_hound'];
 const PLAYER_STEALTH = ['p_camo','a_smoke','a_ghosttrail','a_dustkick'];
 
-export function botDraft(run, build){
+export function botDraft(run, build, depth){
   const target = build || run.aiBuilds[0];
-  const options = rollDraft(target, null, run.duel);
+  const options = rollDraft(target, null, depth || run.duel);
   if(!options.length) return null;
 
   const playerStealth = [...run.player.abilities, ...run.player.passives]

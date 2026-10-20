@@ -11,39 +11,44 @@
   <!-- ============ MENU / CLASS SELECT ============ -->
   <div class="screen active" id="screen-menu">
     <h1 class="pixel-font">TAGLITE</h1>
-    <div class="subtitle">roguelike tag &middot; three modes &middot; one loss ends the run</div>
+    <div class="subtitle">online tag &middot; up to 8 players &middot; bots fill the gaps</div>
 
     <div class="menu-columns">
-      <div>
+      <div class="menu-left">
         <div class="class-grid" id="class-grid"></div>
-        <div id="menu-start-row">
-          <button class="pixel-btn" id="btn-start">START RUN</button>
-          <div id="level-badge">
-            LV <b id="lv-num">1</b> &nbsp;|&nbsp; XP <b id="xp-num">0/300</b>
-            &nbsp;|&nbsp; BEST <b id="best-num">0</b>
-          </div>
-        </div>
         <div id="next-unlock-row">NEXT: <span id="next-unlock"></span></div>
       </div>
-      <div class="howto">
-        <h3>CONTROLS</h3>
-        <div><span class="k">W A S D</span>move</div><br>
-        <div><span class="k">SHIFT</span>sprint</div><br>
-        <div><span class="k">SPACE</span>dash</div><br>
-        <div><span class="k">E</span>class ability</div><br>
-        <div><span class="k">1-4</span>drafted abilities</div><br>
-        <div><span class="k">CLICK</span>aim &amp; fire <span class="aim-dot">&#9678;</span></div><br><br>
-        <h3>THE RUN</h3>
-        <div>Win a duel, <b>pick 1 of 3</b> upgrades, face tougher opponents. You also get picks <b>during</b> each duel. Lose once and the run is over.</div><br>
-        <div>Your side is randomised every duel.</div><br>
-        <h3>THE TWO SIDES</h3>
-        <div><b>Hunters</b> get the legs &mdash; +5% speed, +10% sprint, -5% dash cooldown.</div><br>
-        <div><b>Prey</b> get the toolkit &mdash; -10% ability cooldown.</div><br>
-        <h3>MODES</h3>
-        <div><b>Classic</b> &mdash; 1v1, <b>2:00</b>, upgrade at 1:00.</div><br>
-        <div><b>Zombie</b> (every 3rd) &mdash; 6 fighters, <b>5:00</b>, upgrades at 2:00 and 4:00. The tagged join the horde; you keep playing after you turn.</div><br>
-        <div><b>Freeze</b> (every 5th) &mdash; 3 hunt 4, <b>5:00</b>, upgrades at 2:00 and 4:00. Stand on a frozen ally to thaw them.</div><br>
-        <div>Every AI drafts its own build, so late runs get genuinely varied.</div>
+      <div class="menu-side">
+        <div class="pixel-panel play-panel">
+          <label class="field-label pixel-font" for="name-input">YOUR NAME</label>
+          <input id="name-input" class="pixel-input" maxlength="12" autocomplete="off" spellcheck="false">
+          <button class="pixel-btn" id="btn-online" type="button">PLAY ONLINE</button>
+          <button class="pixel-btn" id="btn-solo" type="button">SOLO RUN</button>
+          <div class="hint">Endless gauntlet. One loss ends the run.</div>
+          <div class="field-label pixel-font">QUICK BOTS</div>
+          <div id="quick-modes" class="mode-chips"></div>
+          <button class="pixel-btn ghost" id="btn-quick" type="button">QUICK BOTS</button>
+          <div id="level-badge">
+            LV <b id="lv-num">1</b> | XP <b id="xp-num">0/300</b> | BEST <b id="best-num">0</b>
+          </div>
+        </div>
+        <div class="howto">
+          <h3>CONTROLS</h3>
+          <div><span class="k">W A S D</span>move</div>
+          <div><span class="k">SHIFT</span>sprint</div>
+          <div><span class="k">SPACE</span>dash</div>
+          <div><span class="k">E</span>class ability</div>
+          <div><span class="k">1-4</span>drafted abilities</div>
+          <div><span class="k">CLICK</span>aim &amp; fire <span class="aim-dot">&#9678;</span></div>
+          <h3>THE MATCH</h3>
+          <div>Host or join a lobby, then play several <b>rounds</b>. Score points every round and <b>draft one upgrade</b> between them. Highest score wins.</div>
+          <h3>MODES</h3>
+          <div><b>Classic</b> &mdash; 1v1 duel.</div>
+          <div><b>Infection</b> &mdash; the tagged join the horde.</div>
+          <div><b>Freeze</b> &mdash; thaw frozen allies.</div>
+          <div><b>Hot Potato</b> &mdash; don't hold it.</div>
+          <div><b>Solo run</b> &mdash; endless, escalating rounds against bots.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -91,6 +96,16 @@
         <div id="minimap-wrap"><canvas id="minimap" width="176" height="104"></canvas></div>
         <div id="minimap-label" class="pixel-font">MAP</div>
         <div id="announce" class="pixel-font"></div>
+        <div id="match-bar" class="pixel-font"></div>
+        <div id="match-feed"></div>
+        <div id="intermission">
+          <div class="im-panel">
+            <div id="im-head" class="pixel-font"></div>
+            <div id="im-sub"></div>
+            <div id="im-rows"></div>
+            <div id="im-next" class="pixel-font"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -101,6 +116,10 @@
       <div id="draft-result" class="pixel-font">SURVIVED</div>
       <div class="draft-sub" id="draft-sub-line">DUEL <b>1</b> CLEARED &mdash; TAKE ONE</div>
       <div id="draft-next" class="pixel-font"></div>
+    <div id="draft-timer">
+      <div class="dt-bar"><div class="dt-fill" id="draft-timer-fill"></div></div>
+      <div class="dt-row"><span id="draft-timer-wait">WAITING 0/0 PICKED</span><b id="draft-timer-secs"></b></div>
+    </div>
     </div>
     <div class="draft-grid" id="draft-options"></div>
     <div class="build-strip" id="draft-build"></div>
@@ -109,20 +128,82 @@
     </div>
   </div>
 
-  <!-- ============ RUN SUMMARY ============ -->
-  <div class="screen" id="screen-end">
-    <div class="pixel-panel">
-      <div id="end-result" class="pixel-font">RUN OVER</div>
-      <div id="end-sub"></div>
-      <div id="xp-row"></div>
-      <div class="build-strip" id="end-build"></div>
-      <div class="tree" id="run-log"></div>
-      <div id="end-buttons">
-        <button class="pixel-btn ghost" id="btn-menu">CHANGE CLASS</button>
-        <button class="pixel-btn" id="btn-again">RUN AGAIN</button>
+  <!-- ============ ONLINE HUB ============ -->
+  <div class="screen" id="screen-online">
+    <div class="screen-title pixel-font">PLAY ONLINE</div>
+    <div class="screen-sub">playing as <b id="online-name">RUNNER-123</b></div>
+    <div class="online-cols">
+      <div class="online-col">
+        <div class="pixel-panel">
+          <h3 class="panel-h pixel-font">CREATE GAME</h3>
+          <button class="toggle" id="tg-create-public" type="button" role="switch" aria-checked="false"><i></i><span>PUBLIC GAME</span></button>
+          <div class="hint">Public games appear in the browser list. Private games need the room code.</div>
+          <button class="pixel-btn" id="btn-create" type="button">CREATE GAME</button>
+        </div>
+        <div class="pixel-panel">
+          <h3 class="panel-h pixel-font">JOIN BY CODE</h3>
+          <input id="join-code" class="pixel-input code" maxlength="5" placeholder="K7QX2" autocomplete="off" spellcheck="false">
+          <button class="pixel-btn" id="btn-join" type="button" disabled>JOIN</button>
+        </div>
+      </div>
+      <div class="pixel-panel online-browse">
+        <h3 class="panel-h pixel-font">PUBLIC GAMES</h3>
+        <div id="public-list" class="public-list"></div>
+      </div>
+    </div>
+    <button class="pixel-btn ghost" id="btn-online-back" type="button">BACK</button>
+  </div>
+
+  <!-- ============ LOBBY ============ -->
+  <div class="screen" id="screen-lobby">
+    <div class="lobby-head">
+      <div class="code-block">
+        <div class="field-label pixel-font">ROOM CODE</div>
+        <div id="lobby-code" class="pixel-font">-----</div>
+        <div id="lobby-tag"></div>
+      </div>
+      <div class="lobby-copy">
+        <button class="pixel-btn ghost" id="btn-copy-code" type="button">COPY CODE</button>
+        <button class="pixel-btn ghost" id="btn-copy-link" type="button">COPY LINK</button>
+      </div>
+      <button class="pixel-btn ghost danger" id="btn-lobby-leave" type="button">LEAVE</button>
+    </div>
+    <div class="lobby-cols">
+      <div class="lobby-left">
+        <h3 class="panel-h pixel-font">PLAYERS <span id="lobby-count"></span></h3>
+        <div id="lobby-players" class="lobby-players"></div>
+        <h3 class="panel-h pixel-font">YOUR CLASS</h3>
+        <div id="lobby-classes" class="lobby-classes"></div>
+      </div>
+      <div class="lobby-right pixel-panel">
+        <h3 class="panel-h pixel-font">MATCH SETTINGS</h3>
+        <div id="lobby-settings"></div>
+        <div id="lobby-hint"></div>
+        <div class="lobby-actions">
+          <button class="pixel-btn" id="btn-ready" type="button">READY</button>
+          <button class="pixel-btn" id="btn-start-match" type="button">START MATCH</button>
+        </div>
       </div>
     </div>
   </div>
+
+  <!-- ============ RESULTS ============ -->
+  <div class="screen" id="screen-results">
+    <div class="pixel-panel results-panel">
+      <div id="results-title" class="pixel-font">MATCH OVER</div>
+      <div id="results-sub"></div>
+      <div id="podium"></div>
+      <div id="results-table"></div>
+      <div id="results-xp"></div>
+      <div class="build-strip" id="results-build"></div>
+      <div id="results-buttons">
+        <button class="pixel-btn ghost" id="btn-results-menu" type="button">LEAVE TO MENU</button>
+        <button class="pixel-btn" id="btn-rematch" type="button">REMATCH</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="pixel-font" role="status"></div>
 
 </div>
 <div class="footer-credit">TAGLITE</div>

@@ -488,6 +488,7 @@ The user explicitly overrode the original "flat canvas primitives, not higher fi
 **Movement feel.** Stumbles and staggers (`applyStagger`), planted-turn braking when reversing against momentum, a stamina cost on dashes, a fatigue stumble when you blow the tank at speed, soft shoulder-bumps between same-side fighters scaled by mass (`src/bodies.js`; opposing hunter/prey pairs never bump, since tag reach equals contact distance), body-checks and counters in `canTag`, an ice surface (plus the GLAZE map modifier), hit-stop on tags, screen shake, footfall dust and sprint speed lines.
 
 **Content.** 4 new classes (Brawler lv22, Warden lv26, Skater lv30, Chrono lv34), 20 abilities, 20 passives, 12 artifacts, including two 3-piece series with capstones (STRIDER KIT → FIRST WIND, BULWARK PLATE → IMMOVABLE). Spellwright was used for inspiration only; all names and numbers are original.
+
 ## 15. Open Items for Playtesting
 
 These are called out throughout but worth collecting in one place — decisions made with a stated `[RECOMMENDATION]` tag that are cheap to change later and should be revisited once there's an actual build to play:
@@ -507,7 +508,9 @@ The existing look — dark panels with hard pixel borders, `Press Start 2P` for 
 | New UI need | Reuses existing component | Notes |
 |---|---|---|
 | Draft screen ("pick 1 of 3") | `.class-card` (per-item `--card-color` accent, same hover/select treatment) laid out 3-across | Same card anatomy as class select: `Press Start 2P` name line, `VT323` description lines. A small reticle glyph in the corner marks 🎯 (aimed) options — no new icon system, just a tiny inline shape drawn the same way the existing `.swatch` color dot is |
-| Run summary screen | `#screen-end` verbatim — `.pixel-panel`, `#end-result` win/lose color states, `.tree`/`.tier` rows (repurposed from "upgrade tiers" to "duels survived / build acquired / artifacts found" line items), `#end-buttons` with `.pixel-btn` + `.pixel-btn.ghost` | This screen already exists and already has the right bones; it just displays different content now |
+| Results screen (match + solo run) | `#screen-results` — `.pixel-panel`, podium of class-turntable `canvas.preview` pedestals (`.pod`), `.st-row` standings grid, `.pixel-btn` / `.pixel-btn.ghost` buttons. Replaces the old `#screen-end` run summary; solo gauntlet reuses it as "RUN OVER" | One results path for every match kind; same panel, same two fonts, same palette |
+| Online hub / lobby | `#screen-online`, `#screen-lobby` built from `.pixel-panel`, `.pixel-btn`, `.mode-chip`, `.seg`, `.toggle`, `.pcard` player cards (class turntable previews), `.cpick` compact class row | No new visual language: dark navy panels, class-colour accents, pixel bevel; 7×7 data-URL pixel glyphs (crown, tick, role icons) in `pixicons.js` |
+| Match HUD + intermission | `#match-bar` scorebar (top-left), `#match-feed` kill feed (under the minimap), `#intermission` dimmed overlay with a result table — all sized with `calc(Npx * var(--ui))` like the rest of the HUD | Sits clear of the timer/role banner (top centre), minimap (top right) and ability bar (bottom left) |
 | Click-to-target reticle & range ring | Drawn directly in `render.js` at the internal 640×400 resolution with `ctx.imageSmoothingEnabled = false`, same as every other in-world element | The range ring is a pixel-run ellipse on the isometric ground plane (`groundRing` in `iso.js`) |
 | Rare vs. common pickup distinction | Commons are small voxel gems, rares are larger animated voxel crystals with a pulsing ground ring | Same pickup language, bigger and animated for rares |
 | Per-duel map modifier banner | `#announce` element, unchanged (`Press Start 2P`, gold, fade in/out) | Same component that already shows "YOU ARE THE TAGGER" — just fires again at duel start with the modifier name |
@@ -524,3 +527,23 @@ The existing look — dark panels with hard pixel borders, `Press Start 2P` for 
 | Anchor | Slate blue-grey | `#5c6b9b` |
 
 **Hard rule for implementation:** no third font, no colors outside the extended CSS-variable palette above, no departure from the pixelated/`image-rendering:pixelated` rendering approach even for entirely new visual elements (traps, projectiles, gravity wells, beacons). The in-world art is now isometric voxel pixel art (§17): new elements are baked voxel models or pixel-run ground rings and cubes, never anti-aliased vector shapes.
+
+---
+
+## 18. Online Multiplayer & Match Structure
+
+This supersedes §11's "design-only" status. The game is now an online match game; the single-player run survives as **Solo Run** on the same engine.
+
+**Topology.** Serverless P2P via Trystero (WebRTC data channels, signalling over public Nostr relays), so the game stays a static site that deploys to GitHub Pages. One peer **hosts** and runs the only authoritative simulation (`round.js`); others are replicas. Room id `g-<CODE>` (5 chars); a shared `public-lobby-v1` room carries public game adverts (`net.js`). Limits: 8 humans, no TURN (strict NATs may fail), host tab must stay visible, no host migration (host leaving ends the match).
+
+**Match flow (`match.js`).** `lobby → [playing → intermission → draft]×N → results`. Host-driven timers; clients follow `round` / `rend` / `draft` / `dprog` / `end` messages. Each human drafts locally from their own unlocked pool (20s, auto-pick on expiry) and sends the pick; the host owns the authoritative build, which is also what pickups mutate. Bots draft on the host. Rounds rotate sides deterministically (`huntingFlags`) so everyone plays both roles. Depth for map modifiers / draft rarity / bot skill is `2*round-1` in series matches (a series is shorter than a run). `state.run` is kept as a compatibility view so `ui.js` / `hud.js` / `draft.js` run unchanged.
+
+**Modes.** `modes.js` gained `online` metadata and a fourth mode, **Hot Potato** (`swapOnTag`: a tag trades roles, the passer gets 1.4s of immunity; scoring reads per-entity carry time). Per-round scoring lives in `match.js scoreRound`.
+
+**Sync (`netsync.js`).**
+- Host: 20 Hz snapshots. Entities are sent as *per-field deltas* (JSON-compared against what was last sent; AI/bookkeeping fields excluded), world arrays (projectiles, traps, wells, beacons, tempWalls, decoys, powerups, tempZones, familiars) only when changed, new one-shot visuals (shockwaves, afterimages) once. About 18 KB/s per client with 7 fighters.
+- Cosmetic calls (`spawnAbilityFX`, `spawnClassFX`, `spawnEventFX`, `playAnim`, `kickShake`, announcements, kill feed) are recorded by `relay.js` and replayed on clients through the same functions. Hit-stop is disabled whenever humans are connected (it would stall the host sim for everyone).
+- Client: remote fighters interpolate 110 ms behind an offset-smoothed host clock; the local fighter is **predicted** with the real `updateSprint`/`updatePhysics`/`tryDash`, reconciled against input-sequence acks (blend 22% per snapshot under 40 px of drift, full correction beyond). Abilities and dashes are intents (`i` channel, 30 Hz) executed on the host; aim points are clamped to the caster's real range host-side.
+- Late/ordering safety: clients request a full snapshot after building a round, and every 100th snapshot is a keyframe.
+
+**Deploy.** `.github/workflows/deploy.yml` (Pages from Actions), `vite.config.js base:'./'`.

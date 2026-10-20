@@ -442,7 +442,21 @@ function drawFighter(e, t){
   ctx.globalAlpha = 1;
   if(e.frozen) blit(getPropSprite('iceblock', {}), e.x, e.y, 0);
   drawEntityAuras(ctx, e, t, true);
+  if(e.pid && e !== state.player && !hidden) drawNameTag(e);
   return null;
+}
+
+/** Floating name over another human's fighter: red when they're hunting, pale otherwise. */
+function drawNameTag(e){
+  const p = project(e.x, e.y, 38);
+  ctx.font = '12px VT323, monospace';
+  ctx.textAlign = 'center';
+  const x = Math.round(p.x), y = Math.round(p.y);
+  ctx.fillStyle = 'rgba(8,10,20,0.85)';
+  ctx.fillText(e.name, x + 1, y + 1);
+  ctx.fillStyle = e.hunting ? '#ff7a8e' : '#dfe6ff';
+  ctx.fillText(e.name, x, y);
+  ctx.textAlign = 'left';
 }
 
 /* =========================================================================
