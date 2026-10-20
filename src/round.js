@@ -17,6 +17,8 @@ import {
 } from './physics.js';
 import { kickShake, hitstop, updateCamera, updateFeel, snapCamera } from './feel.js';
 import { inputToWorld } from './iso.js';
+import { themeForDuel, buildDecor } from './themes.js';
+import { resetFX, spawnEventFX } from './fx.js';
 import { effectiveMass, resolveBodies } from './bodies.js';
 import { updateAI } from './ai.js';
 import {
@@ -99,6 +101,8 @@ export function startDuel(){
   state.mapParams = params;
 
   state.walls = buildWalls(params.wallVariant);
+  state.theme = themeForDuel(run.duel, state.theme && state.theme.id);
+  state.decor = buildDecor(state.theme, state.walls, mode.world.w, mode.world.h, run.duel*977 + Math.floor(Math.random()*1e6));
   buildPathGrid();
   buildZones(params);
   state.puSpawnPoints = puSpawnPoints();
@@ -110,6 +114,7 @@ export function startDuel(){
   state.shockwaveFX = [];
   state.rareSpawnedThisDuel = false;
   resetEffects();
+  resetFX();
   resetAnims();
   disarm();
   state.wallShiftDone = false;
@@ -344,6 +349,7 @@ function canTag(hunter, prey){
   }
   if(prey.deflectArmed){
     prey.deflectArmed = false;
+    spawnEventFX('deflect', prey.x, prey.y, {dir:norm(prey.x-hunter.x, prey.y-hunter.y)});
     applyKnockback(hunter, prey, 260);
     prey.dashIframe = Math.max(prey.dashIframe, 1.0);
     state.shockwaveFX.push({x:prey.x,y:prey.y,r:0,maxR:50,t:0});
@@ -366,6 +372,7 @@ function onTag(hunter, prey){
   hitstop(HITSTOP_TAG);
   kickShake(3, 0.25);
   state.shockwaveFX.push({x:prey.x,y:prey.y,r:0,maxR:44,t:0});
+  spawnEventFX('tag', prey.x, prey.y, {color:prey.cls.color, hunterColor:hunter.cls.color});
   // the pair: the tagger lunges, the tagged flinches away from the contact
   const impact = norm(prey.x-hunter.x, prey.y-hunter.y);
   playAnim('thrust', hunter, impact);
@@ -430,6 +437,7 @@ function updateThaw(dt){
       f.thawProgress += dt;
       if(f.thawProgress >= mode.thawTime){
         f.frozen = false;
+        spawnEventFX('thaw', f.x, f.y, {color:'#8fd6ff'});
         f.thawProgress = 0;
         f.dashIframe = Math.max(f.dashIframe, 0.5);
         rescuer.thawCd = mode.thawCooldown;
@@ -537,6 +545,7 @@ function update(dt){
   if(state.mapParams.wallShift && !state.wallShiftDone && round.timer < round.duration/2){
     state.wallShiftDone = true;
     state.walls = buildWalls(state.mapParams.wallVariant === 1 ? 0 : 1);
+    state.decor = buildDecor(state.theme, state.walls, WORLD_W, WORLD_H, state.run.duel*977 + 13);
     buildPathGrid();
     for(const e of state.entities) e.currentPath = null;
     showAnnounce('THE WALLS MOVE');

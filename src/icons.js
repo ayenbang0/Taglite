@@ -17,7 +17,7 @@ import { RARE_BY_ID } from './pickups.js';
 import { CLASSES } from './config.js';
 import { RARITY } from './rarity.js';
 
-const LOGICAL = 18;                 // slab icons are authored on an 18x18 grid
+const LOGICAL = 20;                 // slab icons are authored on a 20x20 grid
 const OUTLINE = '#05060c';
 const GLYPH_INK = '#f4f6fb';        // '#' pixels
 const GLYPH_DARK = '#232a42';       // 'o' pixels (detail)
@@ -288,33 +288,43 @@ function drawGlyph(ctx, rows, ox, oy){
 function bakeSlab(color, glyphRows){
   const { c, ctx } = mk(LOGICAL, LOGICAL);
   const top = shade(color, 1.2), left = shade(color, 0.78), right = shade(color, 0.58);
-  const offX = 9, offY = 10;
+  const offX = 10, offY = 11;
   for(let i=0;i<3;i++) for(let j=0;j<3;j++){
     drawCubePx(ctx, (i-j-1)*2 + offX, (i+j) + offY, top, left, right);
   }
   // glyph: dark 1px shadow-outline first so it pops from the slab
-  const gx = 3, gy = 0;
+  const gx = 4, gy = 1;
   const g = mk(LOGICAL, LOGICAL);
   drawGlyph(g.ctx, glyphRows, gx, gy);
   ctx.drawImage(addOutline(g.c), 0, 0);
   return addOutline(c);
 }
 
-/** Fit a baked sprite {canvas,ax,ay} into a square logical canvas, with a ground disc. */
+/** Tight-crop a baked sprite {canvas,ax,ay} into a square canvas, with a ground disc under its feet. */
 function bakeSprite(spr, groundColor){
   const sc = spr.canvas;
-  const size = Math.max(sc.width, sc.height) + 4;
-  const { c, ctx } = mk(size, size);
-  const cx = Math.round(size/2);
-  // ground ellipse under the model's footprint centre
-  const gy = Math.min(size-3, Math.round(size/2 + (sc.height - spr.ay)/2));
-  ctx.fillStyle = groundColor;
-  const rx = Math.max(6, Math.round(sc.width*0.35));
-  for(let k=-2;k<=2;k++){
-    const w = Math.round(rx*Math.sqrt(1 - (k*k)/9));
-    ctx.fillRect(cx-w, gy+k, w*2, 1);
+  const w = sc.width, h = sc.height;
+  const data = sc.getContext('2d').getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    if(data[(y*w+x)*4+3] === 0) continue;
+    if(x < x0) x0 = x; if(x > x1) x1 = x;
+    if(y < y0) y0 = y; if(y > y1) y1 = y;
   }
-  ctx.drawImage(sc, Math.round(cx - spr.ax), Math.round((size - sc.height)/2 - 1));
+  if(x1 < 0){ x0 = 0; y0 = 0; x1 = w-1; y1 = h-1; }
+  const bw = x1-x0+1, bh = y1-y0+1;
+  const size = Math.max(bw, bh) + 6;
+  const { c, ctx } = mk(size, size);
+  const ox = Math.floor((size-bw)/2) - x0, oy = Math.floor((size-bh)/2) - y0;
+  // ground ellipse under the model's footprint centre
+  const gx = Math.round(spr.ax + ox), gy = Math.min(size-2, Math.round(spr.ay + oy));
+  const rx = Math.max(6, Math.round(bw*0.45));
+  ctx.fillStyle = groundColor;
+  for(let k=-2;k<=2;k++){
+    const hw = Math.round(rx*Math.sqrt(1 - (k*k)/9));
+    ctx.fillRect(gx-hw, gy+k, hw*2, 1);
+  }
+  ctx.drawImage(sc, ox, oy);
   return c;
 }
 
@@ -385,13 +395,4 @@ export function cubeIcon(color, px = 12){
   out.className = 'icon';
   out.getContext('2d').drawImage(src, 0, 0);
   return out;
-}
-
-/** Dev helper: every glyph row must be exactly 12 chars, 12 rows. */
-export function validateGlyphs(){
-  const bad = [];
-  for(const [k, rows] of Object.entries(G)){
-    if(rows.length !== 12 || rows.some(r => r.length !== 12)) bad.push(k);
-  }
-  return bad;
 }

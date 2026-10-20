@@ -2,7 +2,7 @@ import { hash3, cached } from './voxel.js';
 import { project } from './iso.js';
 import {
   VoxGrid, bakeVox, TilePainter, baseCells, slowTile, speedTile, iceTile,
-  mulberry32, seedOf, rgb32, shade32, mix32, TILE_CELLS,
+  mulberry32, seedOf, rgb32, shade32, mix32,
 } from './themeart.js';
 
 /* =========================================================================
@@ -288,7 +288,7 @@ function pine(g, f, r, c, o){
   g.cone(cx + sway(f)*s, cy + sway2(f)*s, zt, zt + 3, 1.3, 0.3, o.needles[1]);
   if(o.snow){
     const nc = o.needles.map(ch => ch.charCodeAt(0));
-    g.cap((x, y, z, code) => nc.includes(code) ? (hash3(x, y, z) > 0.2 ? o.snow[0] : o.snow[1]) : null);
+    g.cap((x, y, z, code) => (nc.includes(code) && hash3(x, y, z + 3) > 0.42) ? (hash3(x, y, z) > 0.25 ? o.snow[0] : o.snow[1]) : null);
   }
 }
 
@@ -473,7 +473,7 @@ const GLADE = {
   walls: [
     { id: 'oak', w: 3, frames: 4, build(g, f, r, c){
       const acc = ['p', 'b', null, 'y'][c.variant];
-      tree(g, f, r, c, { R: 7.4, zt: c.zb + 5, trunk: 't', trunkD: 'T', leaves: ['L', 'g', 'l'], blobs: 5, accent: acc, accentP: 0.06 });
+      tree(g, f, r, c, { R: 7, zt: c.zb + 7, trunk: 't', trunkD: 'T', leaves: ['L', 'g', 'l'], blobs: 5, accent: acc, accentP: 0.06 });
     } },
     { id: 'hedge', w: 3, frames: 1, build(g, f, r, c){
       mound(g, c, 6, (x, y, z) => leafChar(['h', 'H', 'j'], x, y, z, c.zb - 1, c.zb + 6));
@@ -498,7 +498,7 @@ const GLADE = {
   ],
   border: [
     { id: 'bigoak', w: 3, frames: 4, build(g, f, r, c){
-      tree(g, f, r, c, { R: 8.2, zt: c.zb + 3, tr: 2.2, trunk: 't', trunkD: 'T', leaves: ['L', 'g', 'l'], blobs: 6, accent: c.variant === 2 ? 'p' : null, accentP: 0.05 });
+      tree(g, f, r, c, { R: 8, zt: c.zb + 5, tr: 2.2, trunk: 't', trunkD: 'T', leaves: ['L', 'g', 'l'], blobs: 6, accent: c.variant === 2 ? 'p' : null, accentP: 0.05 });
     } },
     { id: 'pines', w: 2, frames: 4, build(g, f, r, c){
       pine(g, f, r, c, { R: 7.6, tiers: 5, step: 4, trunk: 'T', needles: ['L', 'g'] });
@@ -518,8 +518,8 @@ const GLADE = {
   ],
   decor: [
     { kind: 'tuft', w: 6, frames: 4, fps: 3, H: 6, build(g, f, r, c){
-      for(let i = 0; i < 6; i++){
-        const x = 1 + (r()*6 | 0), y = 1 + (r()*6 | 0), h = 2 + (r()*2.5 | 0);
+      for(let i = 0; i < 8; i++){
+        const x = 1 + (r()*6 | 0), y = 1 + (r()*6 | 0), h = 3 + (r()*2.5 | 0);
         for(let z = 0; z < h; z++) g.set(x, y, z, z === h - 1 ? 'l' : 'j');
         g.set(x + (i & 1 ? sway(f) : 0), y, h, 'l');
       }
@@ -585,7 +585,7 @@ const CRYSTAL = {
   base(g, c){
     slab(g, c, (x, y, z, zb) => {
       const n = hash3(x, y, z);
-      if(z >= zb - 1) return n < 0.5 ? 'Q' : n < 0.9 ? 'q' : 'g';
+      if(z >= zb - 1) return n < 0.5 ? 'Q' : n < 0.86 ? 'q' : 'g';
       return n < 0.12 ? 'd' : n < 0.58 ? 'r' : 'q';
     }, 0.15);
     g.cap((x, y, z) => (z === c.zb - 1 && hash3(x, y, 61) < 0.05) ? 'g' : null);
@@ -606,7 +606,7 @@ const CRYSTAL = {
     }
     // glinting shards
     const glowC = rgb32('#d0b0ff'), dimC = rgb32('#5b3fb0');
-    for(let n = 0; n < (A ? 4 : 3); n++){
+    for(let n = 0; n < (A ? 2 : 1); n++){
       const u = 2 + (r()*26 | 0), v = 2 + (r()*26 | 0), ph = (r()*4) | 0;
       const bri = [0.15, 0.55, 1, 0.55][(f + ph) & 3];
       const col = mix32(dimC, glowC, bri);
@@ -618,7 +618,8 @@ const CRYSTAL = {
   walls: [
     { id: 'cluster', w: 4, frames: 4, build(g, f, r, c){
       crystalGlow(c, f);
-      shards(g, f, r, c, { n: 5 + (c.variant & 1), h0: 9, h1: 17, r0: 2.3, lean: 3, keys: ['c', 'C', 'u'], glowOf: CRY_GLOW, sparkle: 'w' });
+      shards(g, f, r, c, { n: 5 + (c.variant & 1), h0: 11, h1: 20, r0: 2.7, lean: 3, keys: ['c', 'C', 'u'], glowOf: CRY_GLOW, sparkle: 'w' });
+      g.cap((x, y, z) => (z === c.zb - 1 && hash3(x, y, 63) < 0.28) ? (hash3(x, y, 64) > 0.5 ? 'g' : 'G') : null);
     } },
     { id: 'stalag', w: 3, frames: 4, build(g, f, r, c){
       crystalGlow(c, f);
@@ -663,13 +664,13 @@ const CRYSTAL = {
   border: [
     { id: 'crystalwall', w: 4, frames: 4, build(g, f, r, c){
       crystalGlow(c, f);
-      crag(g, f, r, c, { h0: 2, h1: 7, fn: (x, y, z, h) => z === h - 1 ? 'Q' : (hash3(x, y, z) > 0.5 ? 'r' : 'q') });
-      shards(g, f, r, c, { n: 7, h0: 11, h1: 18, r0: 2.4, lean: 3, keys: ['c', 'C', 'u'], glowOf: CRY_GLOW, sparkle: 'w' });
+      crag(g, f, r, c, { h0: 2, h1: 7, fn: (x, y, z, h) => z === h - 1 ? 'Q' : (hash3(x, y, z + 5) > 0.96 ? 'g' : (hash3(x, y, z) > 0.5 ? 'r' : 'q')) });
+      shards(g, f, r, c, { n: 7, h0: 12, h1: 20, r0: 2.6, lean: 3, keys: ['c', 'C', 'u'], glowOf: CRY_GLOW, sparkle: 'w' });
     } },
     { id: 'spires', w: 3, frames: 4, build(g, f, r, c){
       crystalGlow(c, f);
-      crag(g, f, r, c, { h0: 1, h1: 5, fn: (x, y, z) => hash3(x, y, z) > 0.5 ? 'r' : 'd' });
-      shards(g, f, r, c, { n: 8, h0: 13, h1: 19, r0: 2.0, lean: 2, keys: ['u', 'c', 'C'], glowOf: CRY_GLOW, sparkle: 'w' });
+      crag(g, f, r, c, { h0: 1, h1: 5, fn: (x, y, z) => hash3(x, y, z + 5) > 0.95 ? 'G' : (hash3(x, y, z) > 0.5 ? 'r' : 'd') });
+      shards(g, f, r, c, { n: 8, h0: 13, h1: 20, r0: 2.3, lean: 2, keys: ['u', 'c', 'C'], glowOf: CRY_GLOW, sparkle: 'w' });
     } },
     { id: 'gemcliff', w: 3, frames: 4, build(g, f, r, c){
       crystalGlow(c, f);
@@ -692,11 +693,11 @@ const CRYSTAL = {
     } },
     { kind: 'shardlet', w: 4, frames: 4, fps: 3, H: 6, build(g, f, r, c){
       crystalGlow(c, f);
-      for(let i = 0; i < 3; i++) g.cone(1.5 + r()*5, 1.5 + r()*5, 0, 2 + (r()*3 | 0), 1.1, 0.3, ['c', 'C', 'u'][i], false, 0.4, 0);
+      for(let i = 0; i < 4; i++) g.cone(1.5 + r()*5, 1.5 + r()*5, 0, 3 + (r()*3 | 0), 1.3, 0.3, ['c', 'C', 'u', 'C'][i], false, 0.4, 0);
       g.set(4, 4, 4, 'g');
     } },
     { kind: 'pebbles', w: 4, H: 3, build(g, f, r, c){
-      for(let i = 0; i < 4; i++){ const x = 1 + (r()*6 | 0), y = 1 + (r()*6 | 0); g.set(x, y, 0, 'q'); if(r() < 0.5) g.set(x, y, 1, 'Q'); }
+      for(let i = 0; i < 5; i++){ const x = 1 + (r()*6 | 0), y = 1 + (r()*6 | 0); g.set(x, y, 0, 'Q'); if(r() < 0.6) g.set(x, y, 1, 'Q'); if(r() < 0.2) g.set(x, y, 1, 'g'); }
     } },
     { kind: 'glowpool', w: 4, frames: 4, fps: 3, W: 8, D: 8, H: 3, build(g, f, r, c){
       crystalGlow(c, f);
@@ -705,7 +706,7 @@ const CRYSTAL = {
     } },
     { kind: 'spirelet', w: 1, tall: true, frames: 4, fps: 3, H: 10, build(g, f, r, c){
       crystalGlow(c, f);
-      g.cone(4, 4, 0, 7, 2, 0.4, (x, y, z) => z > 5 ? 'g' : (hash3(x, y, z) > 0.5 ? 'r' : 'q'));
+      g.cone(4, 4, 0, 9, 2.4, 0.4, (x, y, z) => z > 6 ? 'g' : (hash3(x, y, z) > 0.5 ? 'Q' : 'q'));
     } },
   ],
   ambient: {
@@ -740,7 +741,7 @@ function statue(g, f, r, c, o){
 const RUINS = {
   id: 'ruins', name: 'SUNKEN RUINS', bg: '#120d08',
   floorFrames: 4, floorFps: 5, wallFrames: 4, wallFps: 3, animFloor: false,
-  outline: '#120c06', baseH: 6,
+  outline: '#120c06', baseH: 7,
   tintOverlay: { color: '#ffb868', alpha: 0.07 },
   minimap: { floor: '#5f5140', wall: '#c8aa72', border: '#8d7650' },
   palette: { floor: '#6c5e46', wall: '#b79c6c', accent: '#d8ad3c', glow: '#ff9a2e' },
@@ -793,7 +794,7 @@ const RUINS = {
   },
   walls: [
     { id: 'pillar', w: 3, frames: 1, build(g, f, r, c){
-      pillar(g, f, r, c, { base: 'S', shaft: ['s', 'S'], h: 11, moss: 'm' });
+      pillar(g, f, r, c, { base: 'S', shaft: ['s', 'S'], h: 12, moss: 'm' });
     } },
     { id: 'blocks', w: 3, frames: 1, build(g, f, r, c){
       blocks(g, f, r, c, { body: ['s', 'd'], glyph: 'g', cap: 'm' });
@@ -922,9 +923,9 @@ const FROST = {
       const w = Math.sin((u + v*0.6)*0.55 + (A ? 0 : 2));
       let c = null;
       if(w > 0.72) c = shade32(bc, 1.1); else if(w < -0.72) c = shade32(bc, 0.92);
-      if(hash3(u, v, 8) > 0.975) c = rgb32('#e9f4ff');
-      const au = (((u - v) + f*7 + 112) % 28);
-      if(au < 5){ c = mix32(c ?? bc, rgb32('#7fe8c0'), 0.1 + (au === 2 ? 0.05 : 0)); }
+      if(hash3(u, v, 8) > 0.99) c = rgb32('#e9f4ff');
+      const wv = Math.sin(u*0.35 + f*1.5708 + 1)*Math.sin(v*0.31 - f*1.2);
+      if(wv > 0.6) c = mix32(c ?? bc, rgb32('#7fe8c0'), 0.09);
       if(c) P.cell(u, v, c);
     }
     for(let n = 0; n < (A ? 3 : 7); n++){
@@ -1061,7 +1062,7 @@ const FOUNDRY = {
   floor(P, kind, f){
     const A = kind === 'floorA';
     const base = rgb32(A ? '#232839' : '#212637'), seam = rgb32('#12152a'), rivet = rgb32('#434c68');
-    const hot = rgb32('#ff63c2'), cold = rgb32('#7e1c5c'), glow = rgb32('#ff3fb0');
+    const hot = rgb32('#a8337f'), cold = rgb32('#33102a'), glow = rgb32('#7a2260');
     for(let u = 0; u < 30; u++){
       for(let v = 0; v < 30; v++){
         let c = shade32(base, 0.93 + hash3(u >> 1, v >> 1, 7)*0.12);
@@ -1071,7 +1072,7 @@ const FOUNDRY = {
         if(((u === 3 || u === 26) && (v === 3 || v === 26))) c = rivet;
         const p = 0.5 + 0.5*Math.sin(6.2832*(f/4 - (u + v)/58));
         if(u === 0 || v === 0) c = mix32(cold, hot, p);
-        else if(u === 1 || v === 1) c = mix32(c, glow, 0.1 + 0.2*p);
+        else if(u === 1 || v === 1) c = mix32(c, glow, 0.04 + 0.12*p);
         P.cell(u, v, c);
       }
     }
@@ -1170,8 +1171,8 @@ const FOUNDRY = {
       g.box(0, 0, zb - 1, W - 1, D - 1, zb + 9, (x, y, z) => hash3(x, y, z) > 0.5 ? 's' : 'd');
       for(let i = 0; i < 3; i++){
         const x = 2 + i*5, y = D - 2 - (i & 1)*2;
-        g.cyl(x, y, zb + 10, zb + 19, 1.5, 'c'); g.cyl(x, y, zb + 14, zb + 14, 2, 'o');
-        g.cyl(x, y, zb + 20, zb + 20, 1.5, (f + i) & 1 ? 'M' : 'm');
+        g.cyl(x, y, zb + 10, zb + 17, 2.2, (vx, vy, vz) => vz === zb + 13 ? 'c' : (hash3(vx, vy, vz) > 0.5 ? 's' : 'S'));
+        g.cyl(x, y, zb + 18, zb + 18, 1.8, (f + i) & 1 ? 'M' : 'm');
       }
       for(let a = 0; a < 16; a++) g.set(Math.min(W - 1, a), D - 1, zb + 5, ((a + f*2) % 6) < 3 ? 'M' : 'm');
     } },
@@ -1239,7 +1240,7 @@ const EMBER = {
   minimap: { floor: '#1f1a28', wall: '#6a5a86', border: '#ff6a2a' },
   palette: { floor: '#1f1a28', wall: '#40354f', accent: '#ff6a2a', glow: '#ffb347' },
   pal: {
-    o: '#2c2436', O: '#40354f', b: '#18131f', h: '#6a5a86', v: '#4f3d3d', V: '#6e5555', a: '#8d8593',
+    o: '#3a3048', O: '#4f4363', b: '#241d30', h: '#7a6a98', v: '#5a4545', V: '#7a5e5e', a: '#8d8593',
     L: '*#ff6f2a', Y: '*#ffb84a', R: '*#b8380f', i: '#3a3238', F: '*#ff5a1e', f: '*#ff9a2e', y: '*#ffd866',
   },
   base(g, c){
@@ -1255,9 +1256,9 @@ const EMBER = {
     const obs = rgb32(A ? '#1f1a28' : '#1c1825');
     baseCells(P, A ? '#1f1a28' : '#1c1825', A ? 7 : 8, 0.12);
     const paths = A
-      ? [[[4, 6], [10, 9], [14, 15], [20, 17], [25, 24]], [[14, 15], [16, 22], [15, 27]]]
-      : [[[5, 22], [11, 18], [15, 13], [22, 10], [26, 4]], [[15, 13], [9, 8]]];
-    const dim = rgb32('#7a2a12'), hotc = rgb32('#ffb347'), warm = rgb32('#b3401a');
+      ? [[[3, 8], [9, 11], [14, 15], [19, 16], [26, 22]], [[14, 15], [15, 23]]]
+      : [[[7, 21], [11, 18], [15, 16], [19, 10]]];
+    const dim = rgb32('#66230f'), hotc = rgb32('#f08a35'), warm = rgb32('#9a3817');
     let s = 0;
     for(const path of paths){
       for(let i = 0; i < path.length - 1; i++){
@@ -1266,7 +1267,7 @@ const EMBER = {
         for(let k = 0; k <= n; k++){
           const u = Math.round(u0 + (u1 - u0)*k/n), v = Math.round(v0 + (v1 - v0)*k/n);
           const heatv = 0.5 + 0.5*Math.sin(6.2832*f/4 - (s++)*0.4);
-          const gl = mix32(obs, warm, heatv*0.4);
+          const gl = mix32(obs, warm, heatv*0.3);
           P.cell(u + 1, v, gl); P.cell(u - 1, v, gl); P.cell(u, v + 1, gl); P.cell(u, v - 1, gl);
         }
       }

@@ -2,6 +2,8 @@ import { WORLD_W, WORLD_H, CAMERA_FOLLOW_RATE, CAMERA_LOOKAHEAD } from './config
 import { clamp } from './math.js';
 import { state } from './state.js';
 import { screenToWorld } from './iso.js';
+import { updateFX } from './fx.js';
+import { updateAmbient } from './themes.js';
 
 /* Game-feel helpers: screen shake, hit-stop, smoothed camera, and the small
    ambient motion that makes running read as running (footfalls, speed lines). */
@@ -72,4 +74,6 @@ export function updateFeel(dt){
     }
   }
   if(state.shake.t > 0) state.shake.t = Math.max(0, state.shake.t - dt);
+  updateFX(dt);
+  if(state.theme) updateAmbient(state.theme, dt, state.camera, WORLD_W, WORLD_H);
 }

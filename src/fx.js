@@ -17,8 +17,8 @@
    ========================================================================= */
 import { IW, IH, ISO_X, ISO_Y, ISO_Z, RADIUS, ROUND_TIME } from './config.js';
 import { state } from './state.js';
-import { groundRing, groundDisc, groundArc, pixelLine } from './iso.js';
-import { shade, drawCubePx, hash3 } from './voxel.js';
+import { groundArc, pixelLine } from './iso.js';
+import { shade, hash3 } from './voxel.js';
 
 const PCAP = 600;      // live particle cap
 const GCAP = 140;      // live ground items
@@ -47,40 +47,19 @@ const fract = x => x - Math.floor(x);
 const sin = Math.sin, cos = Math.cos;
 function unit(x, y){ const l = Math.hypot(x, y) || 1; return { x:x/l, y:y/l }; }
 
-/* ------------------------------ cube sprites ------------------------------ */
-// per colour: 4 "big" tumble frames (cube, flat, cube with faces swapped, flat),
-// 2 mini frames (2x2) and a single pixel colour. Baked lazily, drawn with drawImage.
-const spriteCache = new Map();
+/* ------------------------------ cube drawing ------------------------------ */
+// Cubes are drawn with 2-4 fillRects from a cached per-colour palette (measurably cheaper
+// than drawImage for hundreds of tiny sprites). Big = the shared 4x4 iso cube with 4 tumble
+// frames (cube, flat, cube with faces swapped, flat swapped); mini = 2x2; px = 1 pixel.
+const palCache = new Map();
 function mkCanvas(w, h){ const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
-function bakeSprites(color){
-  const hi = shade(color, 1.2), lf = shade(color, 0.78), rt = shade(color, 0.58);
-  const big = [];
-  for(let f=0; f<4; f++){
-    if(f % 2 === 0){
-      const c = mkCanvas(4, 4);
-      drawCubePx(c.getContext('2d'), 0, 0, hi, f === 0 ? lf : rt, f === 0 ? rt : lf);
-      big.push({ c, ox:-2, oy:-2 });
-    } else {
-      const c = mkCanvas(4, 3), g = c.getContext('2d');
-      g.fillStyle = hi; g.fillRect(1, 0, 2, 1); g.fillRect(0, 1, 4, 1);
-      g.fillStyle = f === 1 ? lf : rt; g.fillRect(0, 2, 2, 1);
-      g.fillStyle = f === 1 ? rt : lf; g.fillRect(2, 2, 2, 1);
-      big.push({ c, ox:-2, oy:-1 });
-    }
-  }
-  const mini = [];
-  for(let f=0; f<2; f++){
-    const c = mkCanvas(2, 2), g = c.getContext('2d');
-    g.fillStyle = hi; g.fillRect(0, 0, 2, 1);
-    g.fillStyle = f === 0 ? lf : rt; g.fillRect(0, 1, 1, 1);
-    g.fillStyle = f === 0 ? rt : lf; g.fillRect(1, 1, 1, 1);
-    mini.push({ c, ox:-1, oy:-1 });
-  }
-  return { big, mini, px:hi };
-}
 function sprites(color){
-  let s = spriteCache.get(color);
-  if(!s){ s = bakeSprites(color); spriteCache.set(color, s); }
+  let s = palCache.get(color);
+  if(!s){
+    const hi = shade(color, 1.2);
+    s = { hi, lf:shade(color, 0.78), rt:shade(color, 0.58), px:hi };
+    palCache.set(color, s);
+  }
   return s;
 }
 
@@ -102,6 +81,13 @@ export function resetFX(){
   for(let i=0; i<PCAP; i++){ pool[i].on = false; pool[i].ent = null; }
   head = 0;
   ground.length = 0; air.length = 0; timers.length = 0;
+}
+
+/** Live counts, for dev overlays / perf checks. */
+export function fxStats(){
+  let particles = 0;
+  for(let i=0; i<PCAP; i++) if(pool[i].on) particles++;
+  return { particles, ground:ground.length, air:air.length, timers:timers.length };
 }
 
 /* particle count multiplier applied by the spawn helpers ("be generous") */
@@ -247,7 +233,9 @@ function wall(x, y, R, h, color, life, o){
 
 function pushGround(g){
   if(ground.length >= GCAP) ground.shift();
-  g.max = g.life; g.delay = g.delay || 0; ground.push(g);
+  g.max = g.life; g.delay = g.delay || 0;
+  g.mr = g.t === 'line' ? -1 : Math.max(g.r || 0, g.r1 || 0, g.r0 || 0);
+  ground.push(g);
   return g;
 }
 /** Expanding/contracting ring on the floor. o:{dot,ease:'out'|'lin'|'in',spin,delay,z,thick} */
@@ -397,13 +385,67 @@ function grabCamera(){
   const c = state.camera;
   camx = c ? c.x : 0; camy = c ? c.y : 0;
 }
+
+/* Local, cheaper versions of iso.js groundRing / groundDisc (same projection and look, but built from
+   per-row runs and without ctx.save/restore, so a dozen big shockwave rings stay inside the frame budget). */
+const SQRT2 = 1.41421356;
+function groundRing(ctx, x, y, r, color, alpha){
+  const a = alpha === undefined ? 1 : alpha;
+  if(a <= 0.01) return;
+  scr(x, y, 0);
+  const rx = Math.max(1, Math.round(r*SQRT2*ISO_X)), ry = Math.max(1, Math.round(r*SQRT2*ISO_Y));
+  const cx = S.x, cy = S.y;
+  if(cx + rx < 0 || cx - rx > IW || cy + ry < 0 || cy - ry > IH) return;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev*a;
+  ctx.fillStyle = color;
+  const inv = 1/ry;
+  for(let yy=0; yy<=ry; yy++){
+    const u0 = Math.abs(yy - 0.5)*inv, u1 = (yy + 0.5)*inv;
+    const xa = rx*Math.sqrt(Math.max(0, 1 - u0*u0)), xb = u1 >= 1 ? 0 : rx*Math.sqrt(1 - u1*u1);
+    const lo = Math.round(Math.min(xa, xb)), hi = Math.round(Math.max(xa, xb));
+    const w = hi - lo + 1;
+    const y0 = cy + yy, y1 = cy - yy;
+    const vis0 = y0 >= 0 && y0 < IH, vis1 = yy > 0 && y1 >= 0 && y1 < IH;
+    if(lo === 0){
+      if(vis0) ctx.fillRect(cx - hi, y0, hi*2 + 1, 1);
+      if(vis1) ctx.fillRect(cx - hi, y1, hi*2 + 1, 1);
+    } else {
+      if(vis0){ ctx.fillRect(cx + lo, y0, w, 1); ctx.fillRect(cx - hi, y0, w, 1); }
+      if(vis1){ ctx.fillRect(cx + lo, y1, w, 1); ctx.fillRect(cx - hi, y1, w, 1); }
+    }
+  }
+  ctx.globalAlpha = prev;
+}
+function groundDisc(ctx, x, y, r, color, alpha){
+  const a = alpha === undefined ? 1 : alpha;
+  if(a <= 0.01) return;
+  scr(x, y, 0);
+  const rx = Math.max(1, Math.round(r*SQRT2*ISO_X)), ry = Math.max(1, Math.round(r*SQRT2*ISO_Y));
+  const cx = S.x, cy = S.y;
+  if(cx + rx < 0 || cx - rx > IW || cy + ry < 0 || cy - ry > IH) return;
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev*a;
+  ctx.fillStyle = color;
+  const y0 = Math.max(-ry, -cy), y1 = Math.min(ry, IH - 1 - cy), inv = 1/(ry*ry);
+  for(let yy=y0; yy<=y1; yy++){
+    const w = Math.round(rx*Math.sqrt(Math.max(0, 1 - yy*yy*inv)));
+    ctx.fillRect(cx - w, cy + yy, w*2 + 1, 1);
+  }
+  ctx.globalAlpha = prev;
+}
 function blitMini(ctx, color, sx, sy, f){
-  const m = sprites(color).mini[f & 1];
-  ctx.drawImage(m.c, sx + m.ox, sy + m.oy);
+  const p = sprites(color), x = sx - 1, y = sy - 1;
+  ctx.fillStyle = p.hi; ctx.fillRect(x, y, 2, 1);
+  ctx.fillStyle = (f & 1) ? p.rt : p.lf; ctx.fillRect(x, y + 1, 2, 1);
 }
 function blitBig(ctx, color, sx, sy, f){
-  const b = sprites(color).big[f & 3];
-  ctx.drawImage(b.c, sx + b.ox, sy + b.oy);
+  const p = sprites(color), x = sx - 2, flat = f & 1, y = sy - 2 + flat;
+  ctx.fillStyle = p.hi;
+  ctx.fillRect(x + 1, y, 2, 1); ctx.fillRect(x, y + 1, 4, 1);
+  const h = flat ? 1 : 2;
+  ctx.fillStyle = (f & 2) ? p.rt : p.lf; ctx.fillRect(x, y + 2, 2, h);
+  ctx.fillStyle = (f & 2) ? p.lf : p.rt; ctx.fillRect(x + 2, y + 2, 2, h);
 }
 
 /* ------------------------------ drawing: ground layer ------------------------------ */
@@ -418,7 +460,7 @@ function dotRing(ctx, x, y, z, r, color, n, spin, big){
     const a = spin + i/n*TAU;
     scr(x + cos(a)*r, y + sin(a)*r, z);
     if(S.x < -6 || S.x > IW+6 || S.y < -6 || S.y > IH+6) continue;
-    if(big) blitBig(ctx, color, S.x, S.y, 0); else blitMini(ctx, color, S.x, S.y, i);
+    if(big || (i & 3) === 0) blitBig(ctx, color, S.x, S.y, i); else blitMini(ctx, color, S.x, S.y, i);
   }
 }
 
@@ -429,6 +471,11 @@ export function drawFXGround(ctx, t){
   for(let i=0; i<ground.length; i++){
     const g = ground[i];
     if(g.delay > 0) continue;
+    if(g.mr >= 0){                    // skip items that are entirely off-screen
+      scr(g.x, g.y, 0);
+      const mx = g.mr*2.9 + 8, my = g.mr*1.5 + 8;
+      if(S.x + mx < 0 || S.x - mx > IW || S.y + my < 0 || S.y - my > IH) continue;
+    }
     const k = 1 - g.life/g.max;
     switch(g.t){
       case 'disc': {
@@ -460,7 +507,7 @@ export function drawFXGround(ctx, t){
           ctx.globalAlpha = baseA;
         } else {
           groundRing(ctx, g.x, g.y, r, g.color, al);
-          if(g.thick && r > 7) groundRing(ctx, g.x, g.y, r + 1, g.color, al*0.75);
+          if(g.thick && r > 7 && r <= 34) groundRing(ctx, g.x, g.y, r + 1, g.color, al*0.75);
         }
         break;
       }
@@ -1198,10 +1245,11 @@ const CLS = {
     burst(c.x, c.y, 2, [c.col, K.lime, K.green], 14, { speed:44, up:0.8 });
   },
   hunter(c){
-    burst(c.x + c.dx*8, c.y + c.dy*8, 8, [K.gold, K.orange, K.white], 12, { speed:90, up:0.2, flat:1, life:0.3, drag:3 });
-    beam(c.x + c.dx*6, c.y + c.dy*6, 8, c.x + c.dx*30, c.y + c.dy*30, 8, c.col, 0.18);
-    ring(c.x, c.y, 2, 14, 0.3, c.col, 0.9);
-    spawn(c.x - c.px*3, c.y - c.py*3, 9, -c.px*20, -c.py*20, 40, 0.8, K.gold, { grav:160, size:1, spin:8, bounce:0.5 });  // casing
+    burst(c.x + c.dx*8, c.y + c.dy*8, 8, [K.gold, K.orange, K.white], 14, { speed:90, up:0.2, flat:1, life:0.55, drag:2.2 });
+    beam(c.x + c.dx*6, c.y + c.dy*6, 8, c.x + c.dx*34, c.y + c.dy*34, 8, c.col, 0.3);
+    beam(c.x + c.dx*6, c.y + c.dy*6, 8, c.x + c.dx*22, c.y + c.dy*22, 8, K.white, 0.2);
+    ring(c.x, c.y, 2, 16, 0.45, c.col, 0.9);
+    for(let k=0; k<2; k++) spawn(c.x - c.px*3, c.y - c.py*3, 9, -c.px*rnd(16, 26), -c.py*rnd(16, 26), rnd(34, 46), 0.9, K.gold, { grav:160, size:0, spin:8, bounce:0.5, delay:k*0.05 });  // casings
   },
   phantom(c){
     const bx = c.x - c.dx*105, by = c.y - c.dy*105;
@@ -1329,20 +1377,21 @@ const EV = {
   dash(x, y, o){
     const d = o.dir ? unit(o.dir.x, o.dir.y) : { x:1, y:0 }, col = o.color || K.white;
     const px = -d.y, py = d.x;
-    for(let i=0; i<10; i++){
+    for(let i=0; i<16; i++){
       const back = rnd(2, 20), side = rnd(-5, 5);
       spawn(x - d.x*back + px*side, y - d.y*back + py*side, rnd(2, 10), -d.x*rnd(10, 30), -d.y*rnd(10, 30), 0, rnd(0.25, 0.45),
         i % 2 ? col : K.white, { size:i % 3 === 0 ? 0 : 1, drag:2, spin:4 });
     }
     for(let k=-1; k<=1; k+=2)
       streak(x - d.x*4 + px*k*4, y - d.y*4 + py*k*4, x - d.x*22 + px*k*4, y - d.y*22 + py*k*4, 6, [col, K.white], 4, { life:0.3, s:1 });
-    dust(x, y, 1, K.dust, 4, { speed:18 });
-    ring(x, y, 2, 13, 0.3, col, 0.8);
+    dust(x, y, 1, K.dust, 6, { speed:20 });
+    ring(x, y, 2, 15, 0.35, col, 0.9);
+    chevronsForward({ x, y, dx:d.x, dy:d.y, px, py }, col, 2, 5);
   },
   skid(x, y, o){
     const d = o.dir ? unit(o.dir.x, o.dir.y) : { x:1, y:0 };
-    for(let i=0; i<5; i++)
-      spawn(x, y, 1, d.x*rnd(10, 40) + rnd(-12, 12), d.y*rnd(10, 40) + rnd(-12, 12), rnd(4, 14), rnd(0.25, 0.45),
+    for(let i=0; i<7; i++)
+      spawn(x, y, 1, d.x*rnd(10, 40) + rnd(-12, 12), d.y*rnd(10, 40) + rnd(-12, 12), rnd(4, 14), rnd(0.3, 0.5),
         pick([K.dust, K.tan, '#bdb5cc']), { drag:3, size:i % 2 ? 1 : 0, grav:20, spin:3 });
     gline(x, y, x - d.x*8, y - d.y*8, 0.4, K.dust);
   },
@@ -1495,7 +1544,7 @@ function gRing(r, color, a){ if(!_front) groundRing(_ctx, _ex, _ey, r, color, a 
 function gDisc(r, color, a){ if(!_front) groundDisc(_ctx, _ex, _ey, r, color, a ?? 1); }
 function gDots(r, color, spin, a, n){
   if(_front) return;
-  _ctx.globalAlpha = _ba*(a ?? 1);
+  _ctx.globalAlpha = _ba*Math.min(1, (a ?? 1)*1.4);
   dotRing(_ctx, _ex, _ey, 0, r, color, n || (r*0.9 + 6), spin, false);
   _ctx.globalAlpha = _ba;
 }
@@ -1511,6 +1560,7 @@ function orb(i, n, rad, z, speed, color, big, phase){
 function rise(n, color, rate, h, rad, o){
   o = o || EMPTY;
   const seed = o.seed || 0, z0 = o.z0 ?? 0, wob = o.wob ?? 1.5;
+  n = Math.ceil(n*1.4);
   for(let i=0; i<n; i++){
     const ph = fract(_t*rate + i/n + seed + i*0.13);
     const ang = i*2.399 + _t*wob;
@@ -1519,7 +1569,7 @@ function rise(n, color, rate, h, rad, o){
     const z = _bz + z0 + (o.down ? h*(1-ph) : h*ph);
     const al = ph > 0.7 ? (1-ph)/0.3 : (ph < 0.12 ? ph/0.12 : 1);
     const col = Array.isArray(color) ? color[i % color.length] : color;
-    if(o.big) aCube(x, y, z, col, al, i); else aMini(x, y, z, col, al, i);
+    if(o.big || (o.mix !== false && i % 3 === 0)) aCube(x, y, z, col, al, i); else aMini(x, y, z, col, al, i);
   }
 }
 function speedLines(n, color, len, o){
@@ -1541,7 +1591,7 @@ function speedLines(n, color, len, o){
 /** Chevron "V" of minis pointing along (dx,dy). */
 function chev(x, y, z, dx, dy, color, s, a){
   const px = -dy, py = dx;
-  aMini(x, y, z, color, a, 0);
+  aCube(x, y, z, color, a, 0);
   aMini(x - dx*s + px*s, y - dy*s + py*s, z, color, a, 1);
   aMini(x - dx*s - px*s, y - dy*s - py*s, z, color, a, 1);
 }
@@ -1569,6 +1619,52 @@ const CHARM = {
   p_anchorpt:'#5c6b9b', p_boots:K.stone, p_double:K.teal, p_windup:K.orange, p_static:K.gold,
   p_boiling:K.orange, p_privil:K.gold, p_divine:K.white, p_glass:K.ice, p_lunge:K.red,
 };
+/* pixel icons for artifacts: 'o' body (shaded top->bottom), 'h' highlight. Baked once with an outline. */
+const RELIC_BMP = {
+  x_heart:['.oo.oo.', 'ohooooo', 'ooooooo', '.ooooo.', '..ooo..', '...o...'],
+  x_claw:['o.o.o', 'o.o.o', 'ooooo', '.ooo.'],
+  x_latch:['.ooo.', 'o...o', 'o...o', 'ooooo', 'oohoo', 'ooooo'],
+  x_flask:['..oo..', '..oo..', '.oooo.', 'ohhooo', 'oooooo', '.oooo.'],
+  x_stopwatch:['..ooo..', '.o...o.', 'o..h..o', 'o..hh.o', '.o...o.', '..ooo..'],
+  x_chalk:['.oooo.', 'ohoooo', 'oooooo', '.oooo.'],
+  x_ironlung:['.oo.oo.', 'ooo.ooo', 'ohooooo'.replace('ooooo', 'o.ooo'), '.oo.oo.', '..o.o..'],
+  x_spurs:['...o...', '..ooo..', 'ohooooo', '..ooo..', '...o...'],
+  x_horseshoe:['oo...oo', 'oo...oo', 'ho...oo', '.oo.oo.', '..ooo..'],
+  x_gland:['..oo...', '.oooo..', 'ohoooo.', 'oooooo.', '.oooo..'],
+  x_stridespikes:['o.o.o.o', 'ooooooo', '.ohooo.'],
+  x_stridevest:['oo...oo', 'ooo.ooo', '.ohooo.', '.ooooo.'],
+  x_stridebands:['ooooooo', '.......', 'ohooooo'],
+  x_bulwarkpad:['..ooo..', '.ohooo.', 'ooooooo', 'ooooooo'],
+  x_bulwarkplate:['ooooooo', 'oo.h.oo', 'ooohooo', '.ooooo.'],
+  x_bulwarkgreave:['..ooo..', '..ohoo.', '..ooo..', '.ooooo.', 'ooooooo'],
+};
+const iconCache = new Map();
+function relicIcon(id, col){
+  let ic = iconCache.get(id);
+  if(ic) return ic;
+  const rows = RELIC_BMP[id] || ['.ooo.', 'ooooo', '.ooo.'];
+  const h = rows.length, w = Math.max(...rows.map(r => r.length));
+  const c = mkCanvas(w + 2, h + 2), g = c.getContext('2d');
+  g.fillStyle = '#05060c';
+  for(let r=0; r<h; r++) for(let q=0; q<rows[r].length; q++) if(rows[r][q] !== '.')
+    for(let dy=-1; dy<=1; dy++) for(let dx=-1; dx<=1; dx++) g.fillRect(q + 1 + dx, r + 1 + dy, 1, 1);
+  for(let r=0; r<h; r++) for(let q=0; q<rows[r].length; q++){
+    const ch = rows[r][q];
+    if(ch === '.') continue;
+    g.fillStyle = ch === 'h' ? '#ffffff' : shade(col, r === 0 ? 1.3 : (r >= h-1 ? 0.7 : 1));
+    g.fillRect(q + 1, r + 1, 1, 1);
+  }
+  ic = { c, w:w + 2, h:h + 2 };
+  iconCache.set(id, ic);
+  return ic;
+}
+function aIcon(id, col, x, y, z){
+  if(!sideOk(x, y)) return;
+  scr(x, y, z);
+  const ic = relicIcon(id, col);
+  _ctx.drawImage(ic.c, S.x - (ic.w >> 1), S.y - (ic.h >> 1));
+}
+
 /* artifacts orbit at chest height as little relics: colour per id */
 const RELIC = {
   x_heart:K.red, x_claw:K.gold, x_latch:K.ice2, x_flask:K.teal, x_stopwatch:K.gold, x_chalk:K.silver,
@@ -1610,9 +1706,9 @@ function statusAuras(e, m){
   if(e.stumbleT > 0){                      // orbiting stars + dust
     for(let i=0; i<3; i++){
       const a = t*7 + i*2.094;
-      aMini(_ex + cos(a)*5.5, _ey + sin(a)*5.5, _bz + 14.5 + sin(t*9 + i)*0.8, i % 2 ? K.gold : '#fff4a8', undefined, (t*10 + i) | 0);
+      aCube(_ex + cos(a)*5.5, _ey + sin(a)*5.5, _bz + 14.5 + sin(t*9 + i)*0.8, i % 2 ? K.gold : '#fff4a8', undefined, (t*10 + i) | 0);
     }
-    rise(3, K.dust, 2.2, 5, 5);
+    rise(4, K.dust, 2.2, 5, 5);
   }
   if(e.slideT > 0){                        // dust spray + scrape marks
     for(let i=0; i<9; i++){
@@ -1691,22 +1787,23 @@ function statusAuras(e, m){
     gRing(11, K.ice2, 0.5 + 0.2*sin(t*5));
     for(let i=0; i<18; i++){
       const u = 1 - 2*(i + 0.5)/18, rr = Math.sqrt(1 - u*u), th = i*2.399 + t*1.5;
-      aMini(_ex + cos(th)*rr*9, _ey + sin(th)*rr*9, _bz + 7 + u*9, i % 4 === 0 ? K.white : K.ice2, 0.55 + 0.35*sin(t*6 + i), i);
+      if(i % 3 === 0) aCube(_ex + cos(th)*rr*9, _ey + sin(th)*rr*9, _bz + 7 + u*9, K.ice2, 0.8, i);
+      else aMini(_ex + cos(th)*rr*9, _ey + sin(th)*rr*9, _bz + 7 + u*9, i % 4 === 1 ? K.white : K.ice2, 0.6 + 0.35*sin(t*6 + i), i);
     }
   }
   if(e.markedT > 0){                       // floating red diamond
     const z = 19 + sin(t*3)*1.2, bl = 0.65 + 0.35*sin(t*10);
     hudCube(K.red, 0, 0, z, bl, 0);
-    hudMini(K.red, 0, -4, z, bl, 0);
-    hudMini(K.red, 0, 4, z, bl, 1);
-    hudMini(K.red, -6, 0, z, bl, 0);
-    hudMini(K.red, 6, 0, z, bl, 1);
+    hudCube(K.red, 0, -6, z, bl, 0);
+    hudCube(K.red, 0, 6, z, bl, 1);
+    hudCube(K.red, -8, 0, z, bl, 0);
+    hudCube(K.red, 8, 0, z, bl, 1);
     gRing(9 + sin(t*6), K.red, 0.4);
   }
   if(e.stunT > 0){                         // stun spiral
     for(let i=0; i<8; i++){
       const ph = i/8, a = t*9 + ph*TAU*1.5, rr = 2 + ph*4;
-      aMini(_ex + cos(a)*rr, _ey + sin(a)*rr, _bz + 12.5 + ph*4, i % 2 ? K.gold : K.white, undefined, i);
+      aCube(_ex + cos(a)*rr, _ey + sin(a)*rr, _bz + 12.5 + ph*4, i % 2 ? K.gold : K.white, undefined, i);
     }
   }
   if(e.frozen){                            // ice glints
@@ -1729,7 +1826,7 @@ function statusAuras(e, m){
     hudMini(K.dust, 0, 3, 18 - 1, 0.9, 0);
   }
   if(e.blindT > 0){                        // flash spots round the head
-    for(let i=0; i<4; i++) orb(i, 4, 3.8, 11 + sin(t*8 + i), 9, K.white, false);
+    for(let i=0; i<4; i++) orb(i, 4, 3.8, 11 + sin(t*8 + i), 9, K.white, true);
   }
   if(e.wardT > 0){                         // reversal ward
     gRing(12, K.violet, 0.7);
@@ -1769,7 +1866,8 @@ function statusAuras(e, m){
   if(e.pierceT > 0){                       // needle ahead of the hands
     for(let i=0; i<5; i++){
       const d = 5 + i*2.4;
-      aMini(_ex + _dx*d, _ey + _dy*d, _bz + 6.5, i === 4 ? K.white : '#ffd6dd', 0.6 + 0.4*sin(t*14 + i), i);
+      if(i % 2) aCube(_ex + _dx*d, _ey + _dy*d, _bz + 6.5, i === 4 ? K.white : '#ffd6dd', 0.6 + 0.4*sin(t*14 + i), i);
+      else aMini(_ex + _dx*d, _ey + _dy*d, _bz + 6.5, i === 4 ? K.white : '#ffd6dd', 0.6 + 0.4*sin(t*14 + i), i);
     }
   }
   if(e.seeThroughT > 0){                   // glinting eyes + radar ping
@@ -1822,7 +1920,8 @@ function statusAuras(e, m){
   if(e.dashBurstT > 0){                    // dash blur
     for(let i=0; i<5; i++){
       const d = 3 + i*3.2;
-      aMini(_ex - _dx*d, _ey - _dy*d, _bz + 5 + sin(t*18 + i)*1.2, i % 2 ? _col : K.white, 0.85 - i*0.15, i);
+      if(i % 2) aCube(_ex - _dx*d, _ey - _dy*d, _bz + 5 + sin(t*18 + i)*1.2, _col, 0.85 - i*0.15, i);
+      else aMini(_ex - _dx*d, _ey - _dy*d, _bz + 5 + sin(t*18 + i)*1.2, K.white, 0.85 - i*0.15, i);
     }
   }
   if(e.dashIframe > 0 && sin(t*40) > 0){   // i-frame flicker
@@ -1883,7 +1982,7 @@ function passiveAuras(e, m, has){
       }
     }
   }
-  if(m.noSprint && e === state.player) gDots(tagR(e), K.gold, t*0.5, 0.18);   // MOM'S GRIP reach
+  if(m.noSprint && e === state.player) gDots(tagR(e), K.gold, t*0.5, 0.4);   // MOM'S GRIP reach
   if(e.pickupStacks > 0){                  // QUICKSILVER ticks
     const n = Math.min(e.pickupStacks, 6);
     for(let i=0; i<n; i++) hudMini(K.teal, -7 + i*3, 4 - sin(t*4 + i)*1.2, 16, undefined, i);
@@ -1929,23 +2028,23 @@ function passiveAuras(e, m, has){
   if(has('p_bully')){                      // shoulder sparks
     for(const s of [-1, 1]){
       const fl = sin(t*13 + s*2) > 0 ? K.orange : K.red;
-      aMini(_ex + _px*5*s, _ey + _py*5*s, _bz + 9 + sin(t*9 + s)*0.5, fl, undefined, (t*9) | 0);
+      aCube(_ex + _px*5*s, _ey + _py*5*s, _bz + 9 + sin(t*9 + s)*0.5, fl, undefined, (t*9) | 0);
       if(sin(t*7 + s) > 0.6) aPix(_ex + _px*6*s + _dx*1, _ey + _py*6*s + _dy*1, _bz + 11, K.white);
     }
   }
   if(has('p_ironcalves')){                 // glowing calves
     const pulse = 0.55 + 0.45*sin(t*5), hot = e.sprintActive ? 1 : pulse;
-    for(const s of [-1, 1]) aMini(_ex + _px*1.8*s + _dx*(sin(e.stepPhase*Math.PI + s)*0.8), _ey + _py*1.8*s + _dy*(sin(e.stepPhase*Math.PI + s)*0.8), _bz + 1.5, e.fatigued ? K.orange : K.teal, hot, 0);
+    for(const s of [-1, 1]) aCube(_ex + _px*1.8*s + _dx*(sin(e.stepPhase*Math.PI + s)*0.8), _ey + _py*1.8*s + _dy*(sin(e.stepPhase*Math.PI + s)*0.8), _bz + 1.5, e.fatigued ? K.orange : K.teal, hot, 0);
   }
   if(m.grudge){                            // purple wisps per debuff
     const n = Math.max(1, Math.min(5, e.debuffN || 0));
-    rise(n, [K.purple, K.violet], 1.1, 15, 6, { wob:2.2 });
+    rise(n, [K.purple, K.violet], 1.1, 15, 6, { wob:2.2, big:true });
   }
   if(m.slingshot){                         // coil sparks, tighter as charge builds
     const ch = Math.min(1, (e.sprintHeldT || 0)/1.5), full = ch >= 1;
     for(let i=0; i<4; i++){
       const a = t*(5 + ch*8) + i*TAU/4, rr = 7 - ch*3.5;
-      aMini(_ex + cos(a)*rr, _ey + sin(a)*rr, _bz + 3 + ch*8 + sin(t*9 + i), full && sin(t*30) > 0 ? K.white : K.blue, 0.4 + 0.6*ch, i);
+      aCube(_ex + cos(a)*rr, _ey + sin(a)*rr, _bz + 3 + ch*8 + sin(t*9 + i), full && sin(t*30) > 0 ? K.white : K.blue, 0.5 + 0.5*ch, i);
     }
   }
   if(m.pressure){                          // red field of pressure at the 60u radius
@@ -1957,13 +2056,13 @@ function passiveAuras(e, m, has){
   if(m.airTime){                           // floating dust
     for(let i=0; i<5; i++){
       const a = i*1.26 + t*0.6;
-      aMini(_ex + cos(a)*6, _ey + sin(a)*6, _bz + 2.5 + sin(t*2.4 + i*1.7)*1.8, K.tan, 0.75, i);
+      aCube(_ex + cos(a)*6, _ey + sin(a)*6, _bz + 2.5 + sin(t*2.4 + i*1.7)*1.8, K.tan, 0.85, i);
     }
   }
   if(has('p_glide') && _spd > 40){         // shimmer trail
     for(let i=0; i<4; i++){
       const d = 4 + i*3.5;
-      aMini(_ex - _dx*d, _ey - _dy*d, _bz + 3 + sin(t*12 + i*1.4)*3, i % 2 ? K.snow : K.ice2, (0.9 - i*0.2)*(0.6 + 0.4*sin(t*20 + i)), i);
+      aCube(_ex - _dx*d, _ey - _dy*d, _bz + 3 + sin(t*12 + i*1.4)*3, i % 2 ? K.snow : K.ice2, (0.9 - i*0.2)*(0.6 + 0.4*sin(t*20 + i)), i);
     }
   }
   if(has('p_juggernaut') || m.staggerResist >= 1){   // stone plating
@@ -1985,7 +2084,7 @@ function passiveAuras(e, m, has){
   }
   if(has('p_lunge') && _spd > 90){         // momentum lance
     const reach = Math.min(4, _spd/60);
-    for(let i=0; i<4; i++) aMini(_ex + _dx*(6 + i*1.4 + reach), _ey + _dy*(6 + i*1.4 + reach), _bz + 6, i === 3 ? K.white : K.red, 0.9 - i*0.12, i);
+    for(let i=0; i<4; i++){ const px = _ex + _dx*(6 + i*1.8 + reach), py = _ey + _dy*(6 + i*1.8 + reach); if(i % 2) aCube(px, py, _bz + 6, i === 3 ? K.white : K.red, 0.95 - i*0.1, i); else aMini(px, py, _bz + 6, K.red, 0.9, i); }
   }
 
   // ---- existing passives with conditional tells ----
@@ -2018,7 +2117,7 @@ function artifactAuras(e, m, ar){
     if(!col) continue;
     const a = t*0.9 + i*TAU/n, rr = 13 + (i % 2)*2.5, z = 8 + sin(t*2.2 + i*1.9)*1.6;
     const x = _ex + cos(a)*rr, y = _ey + sin(a)*rr;
-    aCube(x, y, _bz + z, col, undefined, (t*2.5 + i) | 0);
+    aIcon(id, col, x, y, _bz + z + (id === 'x_heart' ? sin(t*8)*(fract(t*1.2) < 0.3 ? 0.6 : 0) : 0));
     // per-relic flourish
     switch(id){
       case 'x_heart':{                       // double-beat pulse
@@ -2086,7 +2185,7 @@ function charmBelt(ps){
     if(!col) continue;
     const a = t*0.55 + k*TAU/n, rr = 9.5 + (k % 2)*1.6;
     const x = _ex + cos(a)*rr, y = _ey + sin(a)*rr, z = 0.8 + sin(t*2.6 + k*1.3)*0.6;
-    aMini(x, y, _bz + z, col, undefined, (t*3 + k) | 0);
+    aCube(x, y, _bz + z, col, undefined, (t*3 + k) | 0);
     if(sin(t*3.1 + k*2.2) > 0.93) aPix(x, y, _bz + z + 2, K.white);
     k++;
   }

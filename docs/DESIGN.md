@@ -15,7 +15,7 @@ Every open design fork below was resolved in conversation; those decisions are r
 | Question | Decision |
 |---|---|
 | Deliverable | This markdown doc first; implementation scope chosen afterward |
-| Content volume | Literal targets: 5–10 classes (existing 4 count toward it), 20+ abilities, 20+ passives, 15+ pickups — all **new** content, additive to what exists. *(Shipped: 8 classes, 30 abilities, 30 passives, 16 pickups — see §13.)* |
+| Content volume | Literal targets: 5–10 classes (existing 4 count toward it), 20+ abilities, 20+ passives, 15+ pickups — all **new** content, additive to what exists. *(Shipped: 12 classes, 60 abilities, 60 passives, 28 pickups (12 temporary + 16 artifacts, including two 3-piece series) — see §13 and §17.)* |
 | Multiplayer | Roadmap/architecture only in this pass — no networking gets built now |
 | Upgrade structure | The old per-class, XP-bought, fixed 3-tier tree is **replaced** by in-run "pick 1 of 3" drafts |
 | Run structure | The game becomes **runs only** (no separate quickplay mode) — a run is an endless string of duels, ends on your first loss, role (Tagger/Runner) stays randomized every duel |
@@ -72,8 +72,8 @@ Player holds reroll charges (**[RECOMMENDATION]**: start each run with 1, gain 1
 
 Today's input is entirely keyboard (`WASD` move, `SPACE` dash, `E` ability). Several new abilities (§5) are aimed — you click a point or the opponent, not just yourself. This needs:
 
-- A **reticle/cursor** rendered in-world while an aimable ability is "armed" (press `E` to arm if you have an aimable ability equipped, then left-click to fire at the cursor's world position; right-click or `Esc` cancels). Drawn on-canvas at the same 320×200 internal resolution as everything else (see §16), not as an HTML overlay — it needs to feel like it belongs to the same pixel world as the sprites.
-- A **range indicator** (simple circle or line, matching the pixel-art style) so aiming reads clearly at the game's small internal resolution (320×200).
+- A **reticle/cursor** rendered in-world while an aimable ability is "armed" (press `E` to arm if you have an aimable ability equipped, then left-click to fire at the cursor's world position; right-click or `Esc` cancels). Drawn on-canvas at the same 640×400 internal resolution as everything else (see §16 and §17), projected onto the isometric ground plane, not as an HTML overlay — it needs to feel like it belongs to the same pixel world as the sprites.
+- A **range indicator** (a ground-plane ring in the isometric view, matching the pixel-art style) so aiming reads clearly at the game's small internal resolution (640×400).
 - Aimable abilities are clearly marked in the draft UI (a small target-reticle icon next to the name) so players know before picking whether it's self-cast or aimed.
 - Bots "aim" by picking the optimal point analytically (e.g., lead the target's predicted position) — no literal cursor needed on the AI side, same predictive math the existing tagger-role AI already does in `updateBotAI`.
 
@@ -320,7 +320,7 @@ Four things changed during implementation. Each is a correction to this document
 
 **1. The bot's draft cadence (§8).** Corrected inline — the original rule was unimplementable against an endless run that ends on your first loss. The bot now drafts every duel, keeping both tracks symmetric.
 
-**2. Content expanded past the original targets.** The pools grew from 20 → **40 abilities** and 20 → **40 passives** (80 draftable upgrades total), across two expansion waves. The §5/§6 tables below describe the original 20 of each; [`src/abilities.js`](../src/abilities.js) and [`src/passives.js`](../src/passives.js) are authoritative for the full set.
+**2. Content expanded past the original targets.** The pools grew from 20 → 40 → **60 abilities** and 20 → 40 → **60 passives** (120 draftable upgrades total), across three expansion waves; the last (§17) added 4 classes (12 total), 20 abilities, 20 passives and 12 artifacts. The §5/§6 tables below describe the original 20 of each; [`src/abilities.js`](../src/abilities.js) and [`src/passives.js`](../src/passives.js) are authoritative for the full set.
 
 The final wave took its cues from Hades and The Binding of Isaac — specifically the idea that the best roguelike pickups **change a rule** rather than adding a number. Translated into tag verbs (reach, tempo, positioning, information) rather than combat ones:
 
@@ -460,11 +460,11 @@ The source material for this was a guide on prompting an AI *sprite-generation* 
 | Leave margin in the attack direction | FX drawn in world space, reaching 20–40px past the 10px sprite, so a swing never clips at the body |
 | Hit reaction as a pair | Every landing effect plays a complementary `hit` flinch on the recipient |
 
-Seven archetypes cover all 40 abilities and 8 class signatures (`thrust`, `throw`, `slam`, `cast`, `pull`, `dash`, `shove`), mapped by ability id with category fallback.
+Seven archetypes cover all 60 abilities and 12 class signatures (`thrust`, `throw`, `slam`, `cast`, `pull`, `dash`, `shove`), mapped by ability id with category fallback. Archetype FX are drawn in the isometric view with pixel lines and ground rings; each ability and passive also has a bespoke voxel-particle effect in `src/fx.js`.
 
 The pair is genuinely complementary rather than two unrelated motions: measured at the strike frame, the attacker is offset +8 along the aim and scaled 1.45×/0.80× (stretching into the blow) while the victim is offset −3.4 and scaled 0.86×/1.17× with a 0.17 rad lean (compressing away from it).
 
-Verified: all 40 abilities animate with no errors, peak 4 concurrent animations across a 7-duel run, animation active on 52% of frames, and zero leaked instances at the end.
+Verified: all 60 abilities animate with no errors, peak 4 concurrent animations across a 7-duel run, animation active on 52% of frames, and zero leaked instances at the end.
 
 The build-defining passives also got persistent tells (Bloody Lust heat, Apotheosis motes, Cold Blood guard, Brittle Bones fracture, Mom's Grip reach ring, Quicksilver ticks), so a fight is readable at a glance.
 
@@ -476,6 +476,18 @@ The game screen's top was being cut off with only the lower half scrollable. Cau
 
 ---
 
+
+## 17. Isometric Voxel Overhaul
+
+The user explicitly overrode the original "flat canvas primitives, not higher fidelity" rule (§16): the whole game is now rendered as **isometric voxel pixel art**, and the movement model was reworked to feel like real running. Gameplay logic is unchanged in structure: the world is still top-down `x,y` with AABB walls and circular fighters; only presentation and input mapping are projected.
+
+**Rendering.** Canvas2D at 640×400 internal; `ISO_X=2, ISO_Y=1, ISO_Z=2` (1 voxel = 1 world unit). `src/iso.js` holds the projection (`project`, `screenToWorld`, ground rings/discs built from pixel runs), `src/voxel.js` bakes layered ASCII voxel models into cached sprites of pre-drawn 4×4px cubes, `src/voxelmodels.js` has the 12 class fighters (4 facings, 4-frame class-specific idle, 4-frame run, dash/slide/stumble/cast/hit/air/frozen) and props, `src/themes.js` + `src/themeart.js` the six animated map themes, `src/fx.js` voxel ability/passive/status effects, `src/render.js` the depth-sorted scene (sorted by `x+y`; fighters hidden behind obstacles show an x-ray silhouette). The camera is the world point at screen centre with lerp follow and velocity lookahead. **WASD is screen-relative** (`W` = up the screen). The canvas is scaled in integer multiples when ≥2×.
+
+**Maps.** Each duel rolls one of six themes (Glade, Crystal Caverns, Sunken Ruins, Frostfall, Neon Foundry, Emberfall; duel 1 is always Glade; never the same theme twice in a row). Obstacles are built from voxel motifs per theme (swaying oaks, pulsing crystals, flickering braziers, blinking server racks, glinting ice, glowing lava veins) with animated floors, non-colliding decor and ambient particles. Collision is still the plain wall AABBs, so the art never changes the movement rules; slow/speed/ice tiles share one readable look in every theme.
+
+**Movement feel.** Stumbles and staggers (`applyStagger`), planted-turn braking when reversing against momentum, a stamina cost on dashes, a fatigue stumble when you blow the tank at speed, soft shoulder-bumps between same-side fighters scaled by mass (`src/bodies.js`; opposing hunter/prey pairs never bump, since tag reach equals contact distance), body-checks and counters in `canTag`, an ice surface (plus the GLAZE map modifier), hit-stop on tags, screen shake, footfall dust and sprint speed lines.
+
+**Content.** 4 new classes (Brawler lv22, Warden lv26, Skater lv30, Chrono lv34), 20 abilities, 20 passives, 12 artifacts, including two 3-piece series with capstones (STRIDER KIT → FIRST WIND, BULWARK PLATE → IMMOVABLE). Spellwright was used for inspiration only; all names and numbers are original.
 ## 15. Open Items for Playtesting
 
 These are called out throughout but worth collecting in one place — decisions made with a stated `[RECOMMENDATION]` tag that are cheap to change later and should be revisited once there's an actual build to play:
@@ -490,14 +502,14 @@ These are called out throughout but worth collecting in one place — decisions 
 
 ## 16. Visual & UI Design Continuity
 
-The existing look — dark panels with hard pixel borders, `Press Start 2P` for labels, `VT323` for body text, flat-color canvas sprites, box-shadow "pixel bevel" edges — is good and every new screen below is built to extend it, not replace it. Concretely:
+The existing look — dark panels with hard pixel borders, `Press Start 2P` for labels, `VT323` for body text, box-shadow "pixel bevel" edges — is good and every new screen below is built to extend it, not replace it. *(Superseded in part by §17: the in-world canvas is no longer flat top-down primitives, it is an isometric voxel pixel-art scene.)* Concretely:
 
 | New UI need | Reuses existing component | Notes |
 |---|---|---|
 | Draft screen ("pick 1 of 3") | `.class-card` (per-item `--card-color` accent, same hover/select treatment) laid out 3-across | Same card anatomy as class select: `Press Start 2P` name line, `VT323` description lines. A small reticle glyph in the corner marks 🎯 (aimed) options — no new icon system, just a tiny inline shape drawn the same way the existing `.swatch` color dot is |
 | Run summary screen | `#screen-end` verbatim — `.pixel-panel`, `#end-result` win/lose color states, `.tree`/`.tier` rows (repurposed from "upgrade tiers" to "duels survived / build acquired / artifacts found" line items), `#end-buttons` with `.pixel-btn` + `.pixel-btn.ghost` | This screen already exists and already has the right bones; it just displays different content now |
-| Click-to-target reticle & range ring | Drawn directly in `render.js` at the internal 320×200 resolution with `ctx.imageSmoothingEnabled = false`, same as every other in-world element | Range ring uses the same `ctx.strokeStyle`/`ctx.arc` pattern already used for the entity role-outline rings and shield ring in `drawEntity` |
-| Rare vs. common pickup distinction | Same 8×8 flat-color square sprite as today's pickups, `+` a pulsing `ctx.shadowBlur` glow for Rare (identical technique already used for entity glow in `drawEntitySprite`) | No new sprite language — bigger/glowing version of what's already there |
+| Click-to-target reticle & range ring | Drawn directly in `render.js` at the internal 640×400 resolution with `ctx.imageSmoothingEnabled = false`, same as every other in-world element | The range ring is a pixel-run ellipse on the isometric ground plane (`groundRing` in `iso.js`) |
+| Rare vs. common pickup distinction | Commons are small voxel gems, rares are larger animated voxel crystals with a pulsing ground ring | Same pickup language, bigger and animated for rares |
 | Per-duel map modifier banner | `#announce` element, unchanged (`Press Start 2P`, gold, fade in/out) | Same component that already shows "YOU ARE THE TAGGER" — just fires again at duel start with the modifier name |
 | HUD ability bar generalizing from 2 fixed slots to N drafted actives | `.ability-icon` (44×44, `.cd-overlay` cooldown mask, `.key` corner keybind tag) repeated in a row inside `#hud-bl` | Same component, just no longer hardcoded to exactly `#icon-dash` + `#icon-ability` |
 | New class colors (Trapper, Hunter, Phantom, Anchor) | New `--trapper`, `--hunter`, `--phantom`, `--anchor` custom properties added to `:root` alongside the existing four | Picked to stay visually distinct from both the existing class colors *and* the semantic colors (`--danger` red, `--gold`, `--accent` teal are reserved meanings — Tagger/Runner banners, timer states, UI accents — and shouldn't get reused as a class identity color) |
@@ -511,4 +523,4 @@ The existing look — dark panels with hard pixel borders, `Press Start 2P` for 
 | Phantom | Pale ice blue | `#8fd6ff` |
 | Anchor | Slate blue-grey | `#5c6b9b` |
 
-**Hard rule for implementation:** no third font, no colors outside the extended CSS-variable palette above, no departure from the pixelated/`image-rendering:pixelated` rendering approach even for entirely new visual elements (traps, projectiles, gravity wells, beacons) — they render as small flat-shape canvas primitives in the same style as today's powerups, decoys, and particles, not as higher-fidelity art that would clash with everything already on screen.
+**Hard rule for implementation:** no third font, no colors outside the extended CSS-variable palette above, no departure from the pixelated/`image-rendering:pixelated` rendering approach even for entirely new visual elements (traps, projectiles, gravity wells, beacons). The in-world art is now isometric voxel pixel art (§17): new elements are baked voxel models or pixel-run ground rings and cubes, never anti-aliased vector shapes.

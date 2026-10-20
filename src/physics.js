@@ -15,6 +15,7 @@ import { zoneAt, resolveWalls, wallBlocked } from './arena.js';
 import { ABILITY_BY_ID } from './abilities.js';
 import { makeDecoy } from './entity.js';
 import { playAnim, archetypeForAbility, archetypeForClass } from './anim.js';
+import { spawnAbilityFX, spawnClassFX, spawnEventFX } from './fx.js';
 import { state } from './state.js';
 
 /* =========================================================================
@@ -104,9 +105,7 @@ export function updatePhysics(e, dirX, dirY, dt, sprint, aiSpeedMult){
         e.vx *= brake; e.vy *= brake;
         if(sp0>120 && t>0.4 && e.skidCd<=0){
           e.skidCd = 0.1;
-          for(let i=0;i<3;i++){
-            state.particles.push({x:e.x,y:e.y,vx:(Math.random()-0.5)*30,vy:(Math.random()-0.5)*30,life:0.35,maxLife:0.35,color:'#8b93b8',size:2});
-          }
+          spawnEventFX('skid', e.x, e.y, {dir:{x:-e.vx/sp0, y:-e.vy/sp0}, color:e.cls.color});
           kickShake(1,0.12);
         }
       }
@@ -192,7 +191,9 @@ function tickTimers(e, dt){
   e.launchT       = dec(e.launchT);
   e.stumbleT      = dec(e.stumbleT);
   e.slideT        = dec(e.slideT);
+  const prevAir = e.airT;
   e.airT          = dec(e.airT);
+  if(prevAir>0 && e.airT<=0) spawnEventFX('landing', e.x, e.y, {color:e.cls.color});
   e.braceT        = dec(e.braceT);
   e.stampedeT     = dec(e.stampedeT);
   e.pacerT        = dec(e.pacerT);
@@ -321,6 +322,7 @@ export function tryDash(e){
   e.dashBurstT = DASH_BURST_TIME;
   e.dashHitApplied = false;   // DIVINE DASH re-arms for this dash
   playAnim('dash', e, dir);
+  spawnEventFX('dash', e.x, e.y, {dir, color:e.cls.color});
   spawnTrail(e);
 
   if(e.ghostTrailCharge){
@@ -443,6 +445,7 @@ export function tryClassAbility(e, opponent, aim){
   }
 
   e.abilityCd = e.cls.abilityCooldown * m.abilityCdMult;
+  spawnClassFX(e, e.clsKey, {dir:actionDir(e, aim, opponent), aim, target:opponent});
   return true;
 }
 
@@ -459,6 +462,7 @@ export function trySlotAbility(e, slot, opponent, aim){
   if(!ok) return false;
   e.slotCd[slot] = def.cd * e.mods.abilityCdMult;
   playAnim(archetypeForAbility(def.id), e, actionDir(e, aim, opponent));
+  spawnAbilityFX(e, def.id, {dir:actionDir(e, aim, opponent), aim, target:opponent});
   return true;
 }
 
@@ -487,6 +491,7 @@ export function applyStagger(e, t){
   e.stumbleT = Math.max(e.stumbleT, t*(1-res));
   e.calmT = 0;
   playAnim('hit', e, e.lastMoveDir);
+  spawnEventFX('stumble', e.x, e.y, {color:e.cls.color});
   startleCheck(e);
 }
 

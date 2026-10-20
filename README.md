@@ -1,6 +1,6 @@
 # TAGLITE
 
-A roguelike tag game. Pick a class, then survive an endless string of escalating 5-minute duels against opponents that build themselves up alongside you. Win a duel, draft an upgrade, face something harder. Lose once and the run is over.
+A roguelike tag game in an **isometric voxel pixel-art** world. Pick a class, then survive an endless string of escalating duels against opponents that build themselves up alongside you. Win a duel, draft an upgrade, face something harder. Lose once and the run is over.
 
 ## Play it
 
@@ -27,7 +27,7 @@ npm run preview  # serve the production build
 
 | Key | Action |
 |---|---|
-| `W A S D` | Move |
+| `W A S D` | Move (screen-relative: `W` runs up the screen) |
 | `SHIFT` | Sprint (hold) |
 | `SPACE` | Dash |
 | `E` | Class ability |
@@ -84,9 +84,9 @@ This is what makes concealment worth drafting. **Decoys** are indistinguishable 
 
 ## Content
 
-- **8 classes** — Rogue, Tank, Scout, Trickster (starters) plus Trapper, Hunter, Phantom, Anchor (unlocked by account level). Each keeps its signature ability permanently; drafts stack on top.
-- **40 draftable abilities** and **40 draftable passives**, shared across all classes — 80 upgrades in total.
-- **16 pickups** — 12 temporary, plus 4 rare artifacts that persist for the rest of the run.
+- **12 classes** — Rogue, Tank, Scout, Trickster (starters) plus Trapper, Hunter, Phantom, Anchor, Brawler, Warden, Skater, Chrono (unlocked by account level). Each keeps its signature ability permanently; drafts stack on top.
+- **60 draftable abilities** and **60 draftable passives**, shared across all classes — 120 upgrades in total.
+- **28 pickups** — 12 temporary, plus 16 rare artifacts that persist for the rest of the run. Two artifact series (**STRIDER KIT**, **BULWARK PLATE**) complete into a capstone passive when you collect all three pieces.
 - **Upgrade rarity** — Common / Uncommon / Rare / Legendary. Deeper duels shift the odds upward, so long runs start surfacing build-defining picks instead of small stat bumps.
 
 Upgrades aim to **change a rule** rather than add a number — a brand that becomes a tag if you can't break away, a slow that stacks the longer you stay close, a familiar that orbits you, a curse that trades sprinting away for reach, and a transformation that rewards focusing your draft on one kind of trait. Duplicates stack plainly, so two copies of a reach passive really is double reach.
@@ -100,8 +100,8 @@ Account level persists in `localStorage`. It never buys raw stats — it **widen
 | 1 | 4 starter classes; Common + Uncommon upgrades |
 | ~7 | Rare upgrades |
 | ~16 | Legendary upgrades |
-| 6 / 10 / 14 / 18 | Trapper / Hunter / Phantom / Anchor |
-| ~34 | Full 60-upgrade pool |
+| 6 / 10 / 14 / 18 / 22 / 26 / 30 / 34 | Trapper / Hunter / Phantom / Anchor / Brawler / Warden / Skater / Chrono |
+| ~55 | Full 120-upgrade pool |
 
 ## Ability animation
 
@@ -109,9 +109,9 @@ Every ability runs a **three-beat** motion — anticipation (pull back), strike 
 
 Timing is deliberately uneven. The wind-up takes ~30% of the animation and decelerates into it; the **strike fires in a 15% window**; the recovery eases out over the rest. Even timing would smear the strike into the surrounding motion and lose the impact.
 
-Direction is always **explicit and in screen space** — every animation is authored along a vector passed in at play time (where you aimed, else the bearing to the target, else where you're moving). Nothing is expressed body-relatively, which is what stops a lunge going the wrong way when your aim and your facing disagree. FX are drawn in world space and reach well past the 10px sprite, so a swing never clips at the body's edge.
+Direction is always **explicit and in world space** — every animation is authored along a vector passed in at play time (where you aimed, else the bearing to the target, else where you're moving) and projected into the isometric view when drawn. Nothing is expressed body-relatively, which is what stops a lunge going the wrong way when your aim and your facing disagree. FX reach well past the fighter sprite, so a swing never clips at the body's edge.
 
-Seven archetypes cover all 40 abilities plus the 8 class signatures:
+Seven archetypes cover all 60 abilities plus the 12 class signatures:
 
 | Archetype | Used by | Motion |
 |---|---|---|
@@ -125,11 +125,24 @@ Seven archetypes cover all 40 abilities plus the 8 class signatures:
 
 **Attacks and hit reactions are built as a pair.** Anything that lands — a tag, knockback, a slow, a chill stack, a spring trap — triggers a matching flinch on the recipient. The two poses are complementary: the attacker stretches *into* the blow (1.45× along the action axis, 0.80× across), the victim compresses *away* from it (0.86× on the impact axis, 1.17× across, with a lean).
 
-Several build-defining passives also carry a persistent tell, so you can read someone's build before it hits you — Bloody Lust's heat ring grows with its stacks, Apotheosis orbits one mote per completed set, Cold Blood shows its unspent guard, Brittle Bones flashes a fracture when dazed, Quicksilver ticks off absorbed pickups.
+Every ability, class signature, passive, artifact and status also has its own voxel-particle effect (`src/fx.js`) — bursts, rune circles, orbiting cubes, speed lines. Several build-defining passives carry a persistent tell, so you can read someone's build before it hits you — Bloody Lust's heat ring grows with its stacks, Apotheosis orbits golden cubes per completed set, Cold Blood shows its unspent guard, Brittle Bones flashes a fracture when dazed, Quicksilver ticks off absorbed pickups.
+
+## The world
+
+The game is drawn as isometric voxel pixel art on a 640×400 canvas; gameplay stays top-down underneath (walls are plain rectangles, fighters are circles), so the art never changes the movement rules. Every duel is set on one of six animated maps — **Glade**, **Crystal Caverns**, **Sunken Ruins**, **Frostfall**, **Neon Foundry** and **Emberfall** — each with its own floor, voxel obstacles (swaying oaks, pulsing crystals, flickering braziers, blinking server racks, glinting ice, glowing lava veins), decor and ambient particles. Slow, speed and ice tiles look the same on every map so the rules stay readable. Fighters standing behind an obstacle show an x-ray silhouette. Every class has a distinct voxel model with its own 4-frame idle animation, a run cycle and dash / slide / stumble / cast / hit poses.
 
 ## Movement & drift
 
-Friction is low (`FRICTION = 2.2`), so you carry real momentum. Coasting from full speed takes **1.15s and 62px**, and fully reversing direction takes **0.45s** — committing to a heading costs you, and snap turns aren't free. Chases are about reading angles and cutting corners, not twitch reversals.
+Friction is low (`FRICTION = 2.2`), so you carry real momentum. Coasting from full speed takes about **1.4s** to a crawl, and fully reversing direction takes **~0.4s** — and the reversal is a *planted turn*: it also bleeds speed and steering bite unless you have grip (Gripped Soles, Grip Chalk, Cleats, the Skater). Chases are about reading angles and cutting corners, not twitch reversals.
+
+Running is physical rather than a free slide:
+
+- **Stumbles** — being staggered halves your speed and steering for a moment and locks your dash. Blowing your stamina at high speed also trips you.
+- **Dashing costs breath** — each dash spends a little stamina (never enough to fatigue you by itself).
+- **Shoulder-bumps** — same-side fighters push each other apart by mass; opposing hunter and prey never bump (tag reach equals contact distance).
+- **Body-checks and counters** — a braced or charging heavier runner shrugs a tag and staggers the hunter; Counter Stance turns a tag into a stagger.
+- **Ice** — slippery ground that cuts friction; Skaters run faster on it.
+- **Feel** — hit-stop on tags, screen shake on big impacts, footfall dust, sprint speed lines and a smoothed, lookahead camera.
 
 Note that friction also sets the effective top speed: at this setting entities cruise around 200 px/s and sprint to ~293.
 
@@ -155,8 +168,8 @@ Originally one HTML file; split into ES modules under `src/`, wired through a si
 | `src/math.js` | Vector helpers |
 | `src/state.js` | The shared mutable state object |
 | `src/rarity.js` | Upgrade rarity tiers and the depth-scaled roll |
-| `src/abilities.js` | 40 draftable abilities and their effects |
-| `src/passives.js` | 40 draftable passives and their modifiers |
+| `src/abilities.js` | 60 draftable abilities and their effects |
+| `src/passives.js` | 60 draftable passives and their modifiers |
 | `src/pickups.js` | Map pickups (common + rare artifacts) |
 | `src/build.js` | Folds class + passives + artifacts into one modifier object |
 | `src/entity.js` | Player/bot entity factory |
@@ -173,7 +186,15 @@ Originally one HTML file; split into ES modules under `src/`, wired through a si
 | `src/ai.js` | Bot steering, pathing, ability decisions |
 | `src/draft.js` | Draft rolling, rarity weighting, bot counter-drafting |
 | `src/run.js` | Run lifecycle: duels, escalation, XP |
-| `src/render.js` | Canvas rendering |
+| `src/render.js` | Isometric depth-sorted scene renderer and minimap |
+| `src/iso.js` | Isometric projection, picking and pixel-crisp ground primitives |
+| `src/voxel.js` | Voxel model format and sprite baker |
+| `src/voxelmodels.js` | Class fighter and prop voxel models, idle/run/pose frames |
+| `src/themes.js`, `src/themeart.js` | The six animated map themes: floors, obstacles, decor, ambient |
+| `src/fx.js` | Voxel-particle ability, passive and status effects |
+| `src/bodies.js` | Soft shoulder-bump resolution and effective mass |
+| `src/feel.js` | Camera follow, hit-stop, shake, footfall and speed-line effects |
+| `src/icons.js` | Voxel icon tiles for abilities, passives, artifacts and classes |
 | `src/hud.js` | In-game HUD |
 | `src/ui.js` | Menu, draft screen, run summary |
 | `src/round.js` | Duel setup and the per-frame update tick |

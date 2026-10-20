@@ -70,8 +70,8 @@ export function buildAbilityBar(){
   const abilities = player.build.abilities;
 
   // fixed buttons: dash + class signature
-  setIcon('ico-dash', iconCanvas('sys', 'dash', 54));
-  setIcon('ico-class', iconCanvas('class', player.clsKey, 54));
+  setIcon('ico-dash', iconCanvas('sys', 'dash', 60));
+  setIcon('ico-class', iconCanvas('class', player.clsKey, 60));
   const cls = CLASSES[player.clsKey];
   document.getElementById('icon-ability').style.setProperty('--card-color', cls.color);
   document.getElementById('icon-ability').title = `${cls.abilityName} \u2014 ${cls.abilityLabel}`;
@@ -90,7 +90,7 @@ export function buildAbilityBar(){
       <div class="cd-overlay"></div>
       <span class="cd-num"></span>
     `;
-    el.querySelector('.ico').appendChild(iconCanvas('ability', def.id, 54));
+    el.querySelector('.ico').appendChild(iconCanvas('ability', def.id, 60));
     el.title = `${def.name} \u2014 ${def.desc}`;
     wrap.appendChild(el);
     slotEls.push({el, overlay:el.querySelector('.cd-overlay'), num:el.querySelector('.cd-num'), def, shown:''});

@@ -28,7 +28,7 @@ const silhouetteCache = new Map();
 function silhouetteOf(spr, id, facing, frame){
   const k = `${id}|${facing}|${frame}`;
   let c = silhouetteCache.get(k);
-  if(!c){ c = tint(spr.canvas, '#000', 0.7); silhouetteCache.set(k, c); }
+  if(!c){ c = tint(spr.canvas, '#5a6385', 0.85); silhouetteCache.set(k, c); }
   return c;
 }
 
@@ -156,7 +156,7 @@ export function renderDraft(options, onPick, onReroll, opts){
       <div class="cline">${info.desc}</div>
       ${info.flavor?`<div class="cflavor">${info.flavor}</div>`:''}
     `;
-    card.querySelector('.dicon').appendChild(iconCanvas(opt.kind, opt.id, 72));
+    card.querySelector('.dicon').appendChild(iconCanvas(opt.kind, opt.id, 80));
     card.onclick = ()=>onPick(opt);
     wrap.appendChild(card);
   });
@@ -197,7 +197,7 @@ function chip(cls, kind, id, label, title, extra=''){
   const el = document.createElement('span');
   el.className = `chip ${cls}`;
   el.title = title;
-  el.appendChild(iconCanvas(kind, id, 36));
+  el.appendChild(iconCanvas(kind, id, 40));
   const t = document.createElement('span');
   t.className = 'chip-label';
   t.textContent = label;

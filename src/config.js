@@ -8,7 +8,6 @@ export const WALL_H = 14;                        // wall height in voxels
 export let WORLD_W = 1500, WORLD_H = 950;
 export function setWorldSize(w,h){ WORLD_W = w; WORLD_H = h; }
 export const RADIUS = 4.2;                        // collision hitbox - kept smaller than the sprite so near-misses are dodgeable
-export const VISUAL_HALF = 5;                     // sprite half-size (drawn slightly bigger than the hitbox)
 export const BASE_MAX_SPEED = 85;
 export const BASE_ACCEL = 560;
 // Halved, for real drift: you carry momentum out of a turn, so committing to a

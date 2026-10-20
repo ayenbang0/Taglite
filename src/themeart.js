@@ -1,5 +1,5 @@
 import { ISO_X, ISO_Z } from './config.js';
-import { shade, mix, outline, hash3 } from './voxel.js';
+import { shade, mix, hash3 } from './voxel.js';
 
 /* =========================================================================
    THEME ART HELPERS
@@ -161,36 +161,46 @@ export class VoxGrid {
 
 const NOISE_LV = 5;
 const colCache = new Map();
+/** [top,left,right] packed colours for a palette entry at a noise level. */
 function triple(hex, lv, amp){
   const key = hex + lv + amp;
   let t = colCache.get(key);
   if(t) return t;
+  let s;
   if(hex[0] === '*'){
     const c = hex.slice(1);
-    t = [c, shade(c, 0.9), shade(c, 0.78)];
+    s = [c, shade(c, 0.9), shade(c, 0.78)];
   } else {
     const f = 1 + (lv - 2) * amp * 0.5;
     const c = f === 1 ? hex : shade(hex, f);
-    t = [shade(c, 1.2), shade(c, 0.78), shade(c, 0.58)];
+    s = [shade(c, 1.2), shade(c, 0.78), shade(c, 0.58)];
   }
+  t = [rgb32(s[0]), rgb32(s[1]), rgb32(s[2])];
   colCache.set(key, t);
   return t;
 }
 
-/** Bake a VoxGrid. pal: {char: '#hex' | '*#hex'}. Returns {canvas, ax, ay, h}. */
+/**
+ * Bake a VoxGrid straight into a pixel buffer (no per-voxel canvas calls).
+ * pal: {char: '#hex' | '*#hex'}. Returns {canvas, ax, ay, h}; the canvas is cropped
+ * to the highest occupied layer.
+ */
 export function bakeVox(g, pal, o = {}){
   const { gw, gd, H, a } = g;
   const amp = o.noise ?? 0.12;
   const pad = 1;
-  const offX = gd*ISO_X + pad, offY = H*ISO_Z + pad;
-  const canvas = document.createElement('canvas');
-  canvas.width = (gw + gd)*ISO_X + pad*2;
-  canvas.height = H*ISO_Z + gw + gd + pad*2;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
   const layer = gw*gd;
-  let topZ = 0;
-  for(let k = 0; k < H; k++){
+  let Hp = 0;
+  for(let k = H - 1; k >= 0 && !Hp; k--){
+    const base = k*layer;
+    for(let n = 0; n < layer; n++){ if(a[base + n]){ Hp = k + 1; break; } }
+  }
+  if(!Hp) Hp = 1;
+  const offX = gd*ISO_X + pad, offY = Hp*ISO_Z + pad;
+  const W = (gw + gd)*ISO_X + pad*2, Hh = Hp*ISO_Z + gw + gd + pad*2;
+  const px = new Uint32Array(W*Hh);
+  const names = new Array(128);
+  for(let k = 0; k < Hp; k++){
     for(let i = 0; i < gw; i++){
       for(let j = 0; j < gd; j++){
         const idx = (k*gd + j)*gw + i;
@@ -200,20 +210,35 @@ export function bakeVox(g, pal, o = {}){
         const rt = i + 1 >= gw ? 0 : a[idx + 1];
         const lf = j + 1 >= gd ? 0 : a[idx + gw];
         if(up && rt && lf) continue;
-        const hex = pal[String.fromCharCode(code)];
+        const hex = pal[names[code] || (names[code] = String.fromCharCode(code))];
         if(!hex) continue;
-        if(k > topZ) topZ = k;
         const lv = hex[0] === '*' ? 2 : Math.min(NOISE_LV - 1, (hash3(i, j, k) * NOISE_LV) | 0);
         const c = triple(hex, lv, amp);
         const x = (i - j - 1)*ISO_X + offX, y = (i + j) - (k + 1)*ISO_Z + offY;
-        ctx.fillStyle = c[0]; ctx.fillRect(x + 1, y, 2, 1); ctx.fillRect(x, y + 1, 4, 1);
-        ctx.fillStyle = c[1]; ctx.fillRect(x, y + 2, 2, 2);
-        ctx.fillStyle = c[2]; ctx.fillRect(x + 2, y + 2, 2, 2);
+        let p = y*W + x;
+        px[p + 1] = c[0]; px[p + 2] = c[0];
+        p += W; px[p] = c[0]; px[p + 1] = c[0]; px[p + 2] = c[0]; px[p + 3] = c[0];
+        p += W; px[p] = c[1]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[2];
+        p += W; px[p] = c[1]; px[p + 1] = c[1]; px[p + 2] = c[2]; px[p + 3] = c[2];
       }
     }
   }
-  const out = o.outline === false ? canvas : outline(canvas, o.outline || '#05060c');
-  return { canvas: out, ax: gw + gd + pad, ay: Math.round((gw + gd)/2) + H*ISO_Z + pad, h: topZ + 1 };
+  let out = px;
+  if(o.outline !== false){
+    const oc = rgb32(o.outline || '#05060c');
+    out = new Uint32Array(px);
+    for(let y = 0; y < Hh; y++){
+      for(let x = 0; x < W; x++){
+        const p = y*W + x;
+        if(px[p]) continue;
+        if((x > 0 && px[p - 1]) || (x < W - 1 && px[p + 1]) || (y > 0 && px[p - W]) || (y < Hh - 1 && px[p + W])) out[p] = oc;
+      }
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = Hh;
+  canvas.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(out.buffer), W, Hh), 0, 0);
+  return { canvas, ax: gw + gd + pad, ay: Math.round((gw + gd)/2) + Hp*ISO_Z + pad, h: Hp };
 }
 
 /* ---------- 32-bit colour helpers for tiles ---------- */
@@ -310,7 +335,7 @@ const edgeCell = (u, v) => u === 0 || v === 0 || u === TILE_CELLS - 1 || v === T
 /** slow: murky brown sludge with darker blotches and popping bubbles */
 export function slowTile(frame){
   const P = new TilePainter();
-  const mud = rgb32('#5d4227'), dark = rgb32('#3d2a16'), wet = rgb32('#82613a'), murk = rgb32('#4a3a1e');
+  const mud = rgb32('#52391f'), dark = rgb32('#2f2010'), wet = rgb32('#715a2e'), murk = rgb32('#3d3a1c');
   for(let u = 0; u < TILE_CELLS; u++){
     for(let v = 0; v < TILE_CELLS; v++){
       const blot = Math.sin(u*0.55 + 1.3)*Math.sin(v*0.47 + 0.7) + (hash3(u >> 1, v >> 1, 5) - 0.5)*0.9;

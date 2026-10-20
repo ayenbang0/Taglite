@@ -11,6 +11,7 @@ import { norm } from './math.js';
 import { makeDecoy } from './entity.js';
 import { state } from './state.js';
 import { showAnnounce } from './ui.js';
+import { spawnEventFX } from './fx.js';
 
 function burst(e,color){
   state.particles.push({x:e.x,y:e.y-4,vx:0,vy:-14,life:0.5,maxLife:0.5,color,size:3});
@@ -145,10 +146,12 @@ export function applyPickup(e, id){
       e.pendingRebuild = true;
     }
     burst(e, def.color);
+    spawnEventFX('rare', e.x, e.y, {color:def.color});
     state.shockwaveFX.push({x:e.x,y:e.y,r:0,maxR:60,t:0});
   } else {
     def.apply(e, dur);
     burst(e, def.color);
+    spawnEventFX('pickup', e.x, e.y, {color:def.color});
   }
   // SCAVENGER passive: every pickup is also a small breather
   if(e.mods && e.mods.scavenger){

@@ -9,6 +9,7 @@ import { len, norm, clamp, dist } from './math.js';
 import { wallBlocked } from './arena.js';
 import { applySlow, applyStagger, applyKnockback } from './physics.js';
 import { playAnim } from './anim.js';
+import { spawnEventFX } from './fx.js';
 import { state } from './state.js';
 
 export function resetEffects(){
@@ -254,6 +255,7 @@ function updateTraps(dt, entities){
           t.cd = 0.5;
           t.uses--;
           burstAt(t.x, t.y, '#ffd23f', 6, 50);
+          spawnEventFX('trapTrigger', t.x, t.y, {kind:'pad'});
           if(t.uses<=0) state.traps.splice(i,1);
           break;
         }
@@ -275,6 +277,7 @@ function updateTraps(dt, entities){
         e.revealedByTrapT = 3;
         e.invisT = 0;
         state.shockwaveFX.push({x:t.x,y:t.y,r:0,maxR:r,t:0});
+        spawnEventFX('trapTrigger', t.x, t.y, {kind:t.kind});
         for(let k=0;k<8;k++){
           state.particles.push({
             x:t.x,y:t.y,vx:(Math.random()-0.5)*40,vy:(Math.random()-0.5)*40,
@@ -412,6 +415,7 @@ function detonate(p, hitEntity, onBoltHit, entities){
   if(p.kind==='strike'){
     // telegraphed AoE: everyone caught in the ring gets shoved and slowed
     state.shockwaveFX.push({x:p.x,y:p.y,r:0,maxR:p.radius,t:0});
+    spawnEventFX('strikeImpact', p.x, p.y, {r:p.radius, color:p.color});
     for(const e of (entities||[])){
       if((e===p.owner && !p.indiscriminate) || e.intangibleT>0) continue;
       const d = len(e.x-p.x, e.y-p.y);
@@ -450,6 +454,11 @@ function updateWells(dt, entities){
     const w = state.wells[i];
     w.life -= dt;
     if(w.life<=0){ state.wells.splice(i,1); continue; }
+    w.pulseT = (w.pulseT||0) - dt;
+    if(w.pulseT<=0){
+      w.pulseT = 0.6;
+      spawnEventFX('wellPulse', w.x, w.y, {r:w.r, kind:w.kind==='tether' ? 'tether' : 'pull', color:w.kind==='anchor' ? '#8a95c9' : '#9b6bff'});
+    }
     for(const e of entities){
       // anchor + tether only affect the caster's opponent; a gravity well drags everyone
       if((w.kind==='anchor' || w.kind==='tether') && e===w.owner) continue;

@@ -21,7 +21,9 @@ initTargeting(canvas);
 function fitCanvas(){
   const maxW = window.innerWidth*0.96, maxH = (window.innerHeight - 48)*(IW/IH);
   const fit = Math.min(maxW, maxH);
-  const scale = fit >= IW ? Math.floor(fit/IW) : fit/IW;
+  // integer multiples keep the pixel grid crisp; below 2x they'd waste too much of the window
+  const raw = fit/IW;
+  const scale = raw >= 2 ? Math.floor(raw) : raw;
   const w = Math.round(IW*scale);
   canvas.style.width = w + 'px';
   canvas.style.height = Math.round(IH*scale) + 'px';

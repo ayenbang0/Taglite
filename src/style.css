@@ -17,6 +17,13 @@
   --hunter:#e0673f;
   --phantom:#8fd6ff;
   --anchor:#5c6b9b;
+  --brawler:#a64b3c;
+  --warden:#7fb069;
+  --skater:#4aa3ff;
+  --chrono:#c7f464;
+
+  /* voxel bevel: lit top edge, shaded bottom edge */
+  --bevel: inset 0 2px 0 rgba(255,255,255,.18), inset 0 -3px 0 rgba(0,0,0,.35);
 }
 *{box-sizing:border-box;}
 html,body{
@@ -41,22 +48,20 @@ html,body{
   align-items:center;
   width:100%; height:100%;
   padding:16px;
-  overflow-y:auto;   /* tall content (8 classes, long run logs) stays reachable */
+  overflow-y:auto;   /* tall content (12 classes, long run logs) stays reachable */
   /* Centre when it fits, but fall back to top-aligned when it doesn't.
      Plain `center` overflows in BOTH directions and the top half becomes
      unreachable, since you can only ever scroll downward. */
   justify-content:center;
   justify-content:safe center;
 }
-.screen.active{ display:flex; }
+.screen.active{ display:flex; animation:fadeIn .15s ease-out; }
+@keyframes fadeIn{ from{opacity:0;} to{opacity:1;} }
 
 /* ---------- pixel panel ---------- */
 .pixel-panel{
   background:var(--panel);
-  box-shadow:
-    0 0 0 4px var(--panel-edge),
-    0 0 0 8px #232a42,
-    8px 8px 0 0 rgba(0,0,0,.5);
+  box-shadow: var(--bevel), 0 0 0 3px #04050a, 4px 4px 0 #04050a;
   padding:20px;
   image-rendering:pixelated;
 }
@@ -68,18 +73,22 @@ button.pixel-btn{
   border:none;
   padding:12px 18px;
   cursor:pointer;
-  box-shadow:0 0 0 3px #04050a, 4px 4px 0 0 rgba(0,0,0,.6);
+  box-shadow: var(--bevel), 0 0 0 3px #04050a, 4px 4px 0 #04050a;
   letter-spacing:1px;
   transition:transform .06s ease;
 }
 button.pixel-btn:hover{ transform:translate(-2px,-2px); }
-button.pixel-btn:active{ transform:translate(1px,1px); box-shadow:0 0 0 3px #04050a, 1px 1px 0 0 rgba(0,0,0,.6);}
+button.pixel-btn:active{
+  transform:translate(1px,1px);
+  box-shadow: inset 0 2px 0 rgba(0,0,0,.25), 0 0 0 3px #04050a, 1px 1px 0 #04050a;
+}
 button.pixel-btn.ghost{
   background:transparent; color:var(--accent);
-  box-shadow:0 0 0 3px var(--accent);
+  box-shadow: var(--bevel), 0 0 0 3px var(--accent), 4px 4px 0 3px #04050a;
 }
 button.pixel-btn:disabled{
-  background:#39415e; color:#6b7290; cursor:not-allowed; box-shadow:0 0 0 3px #04050a;
+  background:#39415e; color:#6b7290; cursor:not-allowed;
+  box-shadow: var(--bevel), 0 0 0 3px #04050a;
 }
 button.pixel-btn:disabled:hover{ transform:none; }
 
@@ -96,23 +105,30 @@ button.pixel-btn:disabled:hover{ transform:none; }
 }
 .menu-columns{ display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center; }
 .class-grid{
-  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+  display:grid; grid-template-columns:repeat(3, 236px); gap:14px;
+  max-height:70vh; overflow-y:auto; overflow-x:hidden;
+  padding:6px 10px 10px 6px;
+  scrollbar-color:#39415e #0f1220; scrollbar-width:thin;
 }
 .class-card{
   width:190px;
   padding:12px;
   background:#0f1220;
-  box-shadow:0 0 0 3px #232a42;
+  box-shadow: var(--bevel), 0 0 0 3px #04050a, 4px 4px 0 #04050a;
   cursor:pointer;
 }
-.class-card.selected{ box-shadow:0 0 0 3px var(--card-color,#fff), 0 0 18px var(--card-color,#fff); }
+.class-grid .class-card{ width:auto; }
+.class-card.selected{
+  box-shadow: var(--bevel), 0 0 0 3px var(--card-color,#fff), 0 0 0 5px #04050a, 5px 5px 0 #04050a, 0 0 18px var(--card-color,#fff);
+}
 .class-card .cname{ font-family:'Press Start 2P'; font-size:11px; margin-bottom:6px; color:var(--card-color,#fff); }
 .class-card .cline{ font-size:16px; color:var(--ink); margin:2px 0; line-height:1.25; }
 .class-card .clabel{ font-size:12px; color:var(--dim); letter-spacing:1px; }
 .swatch{ display:inline-block; width:10px; height:10px; margin-right:6px; }
 
 .howto{
-  width:230px; padding:14px; background:#0f1220; box-shadow:0 0 0 3px #232a42;
+  width:230px; padding:14px; background:#0f1220;
+  box-shadow: var(--bevel), 0 0 0 3px #04050a, 4px 4px 0 #04050a;
   font-size:16px; line-height:1.5;
 }
 .howto h3{ font-family:'Press Start 2P'; font-size:11px; color:var(--accent); margin:0 0 10px 0; }
@@ -128,70 +144,128 @@ button.pixel-btn:disabled:hover{ transform:none; }
 canvas#game{
   image-rendering:pixelated;
   display:block;
-  /* main.js fitCanvas() sets an integer-multiple width of the 640x400 pixel
-     grid and the --ui HUD scale. The fallback below only applies before JS runs.
-     targeting.js maps clicks via getBoundingClientRect, so aiming follows. */
-  width:min(1280px, 94vw, calc((100vh - 48px) * 1.6));
-  height:auto;
+  /* main.js fitCanvas() sets an integer-multiple width/height of the 640x400
+     pixel grid and the --ui HUD scale. targeting.js maps clicks via
+     getBoundingClientRect, so aiming follows. */
   aspect-ratio:640/400;
-  box-shadow:0 0 0 4px var(--panel-edge), 0 0 0 8px #232a42, 10px 10px 0 0 rgba(0,0,0,.55);
+  box-shadow:
+    0 0 0 calc(4px * var(--ui,1)) var(--panel-edge),
+    0 0 0 calc(8px * var(--ui,1)) #232a42,
+    calc(10px * var(--ui,1)) calc(10px * var(--ui,1)) 0 0 rgba(0,0,0,.55);
 }
 .hud{
   position:absolute; inset:0; pointer-events:none;
   font-family:'Press Start 2P', monospace;
+  /* voxel bevel scaled with the HUD */
+  --bev: inset 0 calc(2px * var(--ui,1)) 0 rgba(255,255,255,.18), inset 0 calc(-3px * var(--ui,1)) 0 rgba(0,0,0,.35);
 }
 #hud-top{
-  position:absolute; top:16px; left:50%; transform:translateX(-50%);
-  display:flex; flex-direction:column; align-items:center; gap:4px;
+  position:absolute; top:calc(16px * var(--ui,1)); left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:calc(4px * var(--ui,1));
 }
 #role-banner{
-  font-size:13px; padding:6px 14px; letter-spacing:2px;
-  box-shadow:0 0 0 3px #04050a;
+  font-size:calc(13px * var(--ui,1)); padding:calc(6px * var(--ui,1)) calc(14px * var(--ui,1)); letter-spacing:calc(2px * var(--ui,1));
+  box-shadow: var(--bev), 0 0 0 calc(3px * var(--ui,1)) #04050a;
 }
 #role-banner.tagger{ background:var(--danger); color:#320012; }
 #role-banner.runner{ background:var(--scout); color:#04241f; }
-#timer{ font-size:26px; color:var(--gold); text-shadow:3px 3px 0 #000; }
+#timer{ font-size:calc(26px * var(--ui,1)); color:var(--gold); text-shadow:calc(3px * var(--ui,1)) calc(3px * var(--ui,1)) 0 #000; }
 #timer.low{ color:var(--danger); animation:pulse .5s infinite; }
 @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
 
 #hud-bl{
-  position:absolute; bottom:14px; left:14px; display:flex; gap:10px; align-items:flex-end;
+  position:absolute; bottom:calc(14px * var(--ui,1)); left:calc(14px * var(--ui,1));
+  display:flex; gap:calc(10px * var(--ui,1)); align-items:flex-end;
 }
 .ability-icon{
-  width:44px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42;
+  --card-color:#232a42;
+  width:calc(44px * var(--ui,1)); height:calc(44px * var(--ui,1)); background:#0f1220;
+  box-shadow:
+    var(--bev),
+    0 0 0 calc(2px * var(--ui,1)) var(--card-color),
+    0 0 0 calc(4px * var(--ui,1)) #04050a,
+    calc(4px * var(--ui,1)) calc(4px * var(--ui,1)) 0 calc(2px * var(--ui,1)) #04050a;
   position:relative; display:flex; align-items:center; justify-content:center;
-  font-size:9px; text-align:center; color:var(--ink);
+  font-size:calc(9px * var(--ui,1)); text-align:center; color:var(--ink);
 }
+.ability-icon .ico{ position:absolute; inset:0; display:block; }
+.ability-icon .ico canvas{ width:100%; height:100%; display:block; image-rendering:pixelated; }
 .ability-icon .cd-overlay{
   position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.72);
 }
-.ability-icon .key{
-  position:absolute; top:-10px; left:-10px; background:#232a42; font-size:8px; padding:2px 4px; color:var(--gold);
+.ability-icon .cd-num{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:calc(14px * var(--ui,1)); color:var(--ink);
+  text-shadow:calc(2px * var(--ui,1)) calc(2px * var(--ui,1)) 0 #000;
 }
-#stamina-wrap{ width:80px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:6px; }
-#stamina-label{ font-size:7px; color:var(--dim); margin-bottom:4px; }
-#stamina-bar-bg{ width:100%; height:10px; background:#232a42; }
+.ability-icon .cd-num:empty{ display:none; }
+.ability-icon .key{
+  position:absolute; top:calc(-10px * var(--ui,1)); left:calc(-10px * var(--ui,1)); background:#232a42;
+  font-size:calc(8px * var(--ui,1)); padding:calc(2px * var(--ui,1)) calc(4px * var(--ui,1)); color:var(--gold);
+  box-shadow:0 0 0 calc(2px * var(--ui,1)) #04050a; z-index:2;
+}
+#stamina-wrap{
+  width:calc(80px * var(--ui,1)); height:calc(44px * var(--ui,1)); background:#0f1220; padding:calc(6px * var(--ui,1));
+  box-shadow: var(--bev), 0 0 0 calc(3px * var(--ui,1)) #04050a;
+}
+#stamina-label{ font-size:calc(7px * var(--ui,1)); color:var(--dim); margin-bottom:calc(4px * var(--ui,1)); }
+#stamina-bar-bg{ width:100%; height:calc(10px * var(--ui,1)); background:#232a42; }
 #stamina-bar{ height:100%; background:var(--scout); width:100%; }
 
-#sprint-wrap{ width:80px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:6px; }
-#sprint-label{ font-size:7px; color:var(--dim); margin-bottom:4px; }
-#sprint-bar-bg{ width:100%; height:10px; background:#232a42; }
+#sprint-col{ position:relative; }
+#sprint-wrap{
+  width:calc(96px * var(--ui,1)); height:calc(44px * var(--ui,1)); background:#0f1220; padding:calc(6px * var(--ui,1));
+  box-shadow: var(--bev), 0 0 0 calc(3px * var(--ui,1)) #04050a, calc(4px * var(--ui,1)) calc(4px * var(--ui,1)) 0 calc(3px * var(--ui,1)) #04050a;
+}
+#sprint-label{ font-size:calc(7px * var(--ui,1)); color:var(--dim); margin-bottom:calc(4px * var(--ui,1)); }
+/* 10 pips: the bar is a continuous fill, a repeating mask cuts the gaps */
+#sprint-bar-bg{ position:relative; width:100%; height:calc(10px * var(--ui,1)); background:#232a42; }
+#sprint-bar-bg::after{
+  content:''; position:absolute; inset:0;
+  background-image:repeating-linear-gradient(90deg,
+    transparent 0, transparent calc(10% - 2px * var(--ui,1)),
+    #0f1220 calc(10% - 2px * var(--ui,1)), #0f1220 10%);
+}
 #sprint-bar{ height:100%; background:var(--gold); width:100%; transition:background .15s ease; }
 #sprint-bar.winded{ background:var(--tank); }   /* into the taper zone */
-#sprint-bar.fatigued{ background:var(--danger); }
+#sprint-bar.fatigued{ background:var(--danger); animation:fatigueFlash .3s steps(1) infinite; }
+@keyframes fatigueFlash{ 0%{opacity:1;} 50%{opacity:.35;} }
+#sprint-bar-bg.fatigued{ box-shadow:0 0 0 calc(2px * var(--ui,1)) var(--danger); }
+
+/* statuses: one voxel cube + label per active effect, stacked above the sprint bar */
+#status-row{
+  position:absolute; left:0; bottom:calc(100% + 12px * var(--ui,1));
+  display:flex; flex-wrap:wrap; gap:calc(5px * var(--ui,1));
+  width:max-content; max-width:calc(440px * var(--ui,1));
+}
+.status{
+  display:flex; align-items:center; gap:calc(4px * var(--ui,1));
+  background:#0f1220; padding:calc(2px * var(--ui,1)) calc(5px * var(--ui,1)) calc(2px * var(--ui,1)) calc(2px * var(--ui,1));
+  box-shadow: var(--bev), 0 0 0 calc(2px * var(--ui,1)) #04050a;
+  font-family:'VT323', monospace; font-size:calc(15px * var(--ui,1)); line-height:1;
+}
+.status canvas{ width:calc(14px * var(--ui,1)); height:calc(14px * var(--ui,1)); image-rendering:pixelated; display:block; }
+.status .s-n{ color:var(--dim); letter-spacing:calc(1px * var(--ui,1)); }
+.status .s-t{ color:var(--gold); min-width:calc(16px * var(--ui,1)); }
+.status .s-t:empty{ display:none; }
 
 #minimap-wrap{
-  position:absolute; top:14px; right:14px; width:110px; height:74px;
-  background:#0f1220; box-shadow:0 0 0 3px #232a42;
+  position:absolute; top:calc(14px * var(--ui,1)); right:calc(14px * var(--ui,1));
+  width:calc(176px * var(--ui,1)); height:calc(104px * var(--ui,1));
+  background:#0f1220;
+  box-shadow: var(--bev), 0 0 0 calc(3px * var(--ui,1)) #04050a, calc(4px * var(--ui,1)) calc(4px * var(--ui,1)) 0 calc(3px * var(--ui,1)) #04050a;
 }
-canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
-#minimap-label{ position:absolute; top:14px; right:14px; font-size:7px; color:var(--dim); transform:translateY(-16px); }
+canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; display:block; }
+#minimap-label{
+  position:absolute; top:calc(14px * var(--ui,1)); right:calc(14px * var(--ui,1));
+  font-size:calc(7px * var(--ui,1)); color:var(--dim); transform:translateY(calc(-16px * var(--ui,1)));
+}
 
 #announce{
   position:absolute; top:44%; left:50%; transform:translate(-50%,-50%);
-  font-size:34px; letter-spacing:4px; color:var(--gold);
-  text-shadow:4px 4px 0 #000;
-  opacity:0; transition:opacity .2s ease;
+  font-size:calc(34px * var(--ui,1)); letter-spacing:calc(4px * var(--ui,1)); color:var(--gold);
+  text-shadow:calc(4px * var(--ui,1)) calc(4px * var(--ui,1)) 0 #000;
+  opacity:0; transition:opacity .2s ease; white-space:nowrap;
 }
 #announce.show{ opacity:1; }
 
@@ -206,13 +280,13 @@ canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
 .tree{ display:flex; flex-direction:column; gap:8px; margin-bottom:18px; text-align:left; }
 .tier{
   display:flex; align-items:center; justify-content:space-between;
-  background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:8px 10px;
+  background:#0f1220; box-shadow: var(--bevel), 0 0 0 3px #04050a; padding:8px 10px;
 }
 .tier .tinfo{ font-size:15px; }
 .tier .tname{ color:var(--ink); }
 .tier .tdesc{ color:var(--dim); font-size:13px; }
 .tier button{ font-size:9px; padding:6px 10px; }
-.tier.owned{ box-shadow:0 0 0 3px var(--gold); }
+.tier.owned{ box-shadow: var(--bevel), 0 0 0 3px var(--gold); }
 .tier.locked button{ opacity:.5; }
 
 #end-buttons{ display:flex; gap:12px; justify-content:center; }
@@ -222,55 +296,78 @@ canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
 /* =========================================================================
    ROGUELIKE EXPANSION
    Everything below extends the existing components rather than introducing a
-   new visual language: same two fonts, same pixel-bevel box-shadows, same
-   palette variables.
+   new visual language: same two fonts, same palette variables, one voxel bevel.
    ========================================================================= */
 
 /* ---------- class select additions ---------- */
-.class-card .cdiff{ font-size:7px; color:var(--dim); margin-left:4px; }
+.class-card .cdiff{ font-family:'Press Start 2P'; font-size:7px; color:var(--dim); margin:0 0 8px 0; letter-spacing:1px; }
 .class-card .cflavor{ font-size:13px; color:var(--dim); font-style:italic; margin-top:6px; line-height:1.2; }
-.class-card.locked{ opacity:.45; cursor:not-allowed; }
+.class-card:not(.locked):not(.draft-card):hover{ transform:translate(-1px,-2px); }
+.class-card.locked{ opacity:.55; cursor:not-allowed; }
 .class-card.locked:hover{ transform:none; }
 .class-card .clocked{
   font-family:'Press Start 2P'; font-size:8px; color:var(--danger);
-  margin:6px 0; letter-spacing:1px;
+  margin:6px 0; letter-spacing:1px; line-height:1.5;
 }
 .aim-dot{ color:var(--gold); }
+
+/* class cards carry a turntable of the class's baked voxel sprite */
+.class-card .chead{ display:flex; gap:10px; align-items:flex-start; margin-bottom:8px; }
+.class-card .cmeta{ flex:1; min-width:0; }
+.class-card .cpassive{ font-size:15px; }
+canvas.preview{
+  flex:none; width:96px; height:128px; image-rendering:pixelated;
+  background:radial-gradient(ellipse at 50% 80%, #1a2036 0%, #0b0d16 75%);
+  box-shadow: inset 0 0 0 2px #232a42;
+}
 
 #next-unlock-row{ margin-top:8px; font-size:14px; color:var(--dim); letter-spacing:1px; }
 #next-unlock{ color:var(--accent); }
 
 /* ---------- in-game HUD additions ---------- */
 #duel-badge{
-  font-size:9px; color:var(--dim); letter-spacing:2px; margin-bottom:2px;
+  font-size:calc(9px * var(--ui,1)); color:var(--dim); letter-spacing:calc(2px * var(--ui,1)); margin-bottom:calc(2px * var(--ui,1));
 }
 #duel-badge span{ color:var(--gold); }
 #mode-badge{
-  font-size:10px; letter-spacing:3px; margin-bottom:3px;
-  text-shadow:2px 2px 0 #000;
+  font-size:calc(10px * var(--ui,1)); letter-spacing:calc(3px * var(--ui,1)); margin-bottom:calc(3px * var(--ui,1));
+  text-shadow:calc(2px * var(--ui,1)) calc(2px * var(--ui,1)) 0 #000;
 }
 #team-status{
-  font-size:9px; color:var(--dim); letter-spacing:2px; margin-top:3px;
+  font-size:calc(9px * var(--ui,1)); color:var(--dim); letter-spacing:calc(2px * var(--ui,1)); margin-top:calc(3px * var(--ui,1));
 }
 /* frozen players lose their controls - grey the bar so it reads as locked */
 #hud-bl.frozen{ opacity:.35; filter:saturate(.2); }
-#map-mods{ display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; justify-content:center; }
+#map-mods{ display:flex; gap:calc(4px * var(--ui,1)); margin-top:calc(4px * var(--ui,1)); flex-wrap:wrap; justify-content:center; }
 .mod-tag{
-  font-family:'Press Start 2P'; font-size:7px; letter-spacing:1px;
+  font-family:'Press Start 2P'; font-size:calc(7px * var(--ui,1)); letter-spacing:calc(1px * var(--ui,1));
   background:#0f1220; color:var(--rogue);
-  padding:3px 6px; box-shadow:0 0 0 2px #232a42;
+  padding:calc(3px * var(--ui,1)) calc(6px * var(--ui,1));
+  box-shadow: var(--bev), 0 0 0 calc(2px * var(--ui,1)) #04050a;
 }
 
-#slot-icons{ display:flex; gap:10px; }
-.ability-icon .ab-name{ font-size:7px; line-height:1.1; padding:0 2px; }
+#slot-icons{ display:flex; gap:calc(10px * var(--ui,1)); }
+/* dash charges: pips under the icon */
 .ability-icon .charges{
-  position:absolute; bottom:-6px; right:-6px; background:#232a42;
-  font-size:8px; padding:1px 4px; color:var(--accent);
+  position:absolute; left:50%; bottom:calc(-11px * var(--ui,1)); transform:translateX(-50%);
+  display:none; gap:calc(3px * var(--ui,1)); z-index:2;
 }
+.ability-icon .charges .pip{
+  display:block; width:calc(6px * var(--ui,1)); height:calc(6px * var(--ui,1));
+  background:#232a42; box-shadow:0 0 0 calc(1px * var(--ui,1)) #04050a;
+}
+.ability-icon .charges .pip.on{ background:var(--accent); }
 .ability-icon .aim-dot{
-  position:absolute; top:-8px; right:-6px; font-size:9px;
+  position:absolute; top:calc(-8px * var(--ui,1)); right:calc(-6px * var(--ui,1)); font-size:calc(9px * var(--ui,1)); z-index:2;
+  text-shadow:calc(1px * var(--ui,1)) calc(1px * var(--ui,1)) 0 #000;
 }
-.ability-icon.armed{ box-shadow:0 0 0 3px var(--gold), 0 0 12px rgba(255,210,63,.5); }
+.ability-icon.armed{
+  box-shadow:
+    var(--bev),
+    0 0 0 calc(3px * var(--ui,1)) var(--gold),
+    0 0 0 calc(5px * var(--ui,1)) #04050a,
+    0 0 calc(12px * var(--ui,1)) rgba(255,210,63,.5);
+}
 
 /* ---------- draft screen ---------- */
 #screen-draft{ gap:14px; }
@@ -287,16 +384,29 @@ canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
 }
 
 .draft-grid{
-  display:flex; gap:14px; align-items:stretch;
+  display:flex; gap:18px; align-items:stretch;
   flex-wrap:wrap; justify-content:center; max-width:100%;
+  padding:6px;
 }
 .draft-card{
-  width:210px; max-width:100%;
+  width:230px; max-width:100%;
   display:flex; flex-direction:column;
-  transition:transform .06s ease;
+  box-shadow: var(--bevel), 0 0 0 3px var(--card-color), 0 0 0 5px #04050a, 5px 5px 0 #04050a;
+  /* backwards (not both): once it lands, :hover owns the transform */
+  animation:cardIn .25s ease-out backwards;
+  animation-delay:calc(var(--i,0) * 70ms);
+  transition:transform .12s ease;
+  transform-origin:50% 100%;
 }
-.draft-card:hover{ transform:translate(-2px,-2px); }
+.draft-card:hover{ transform:perspective(500px) rotateX(6deg) translateY(-4px); }
+@keyframes cardIn{
+  from{ opacity:0; transform:perspective(500px) rotateX(-18deg) translateY(28px); }
+  to  { opacity:1; transform:perspective(500px) rotateX(0) translateY(0); }
+}
 .draft-card .cname{ font-size:10px; line-height:1.4; }
+.draft-card .dhead{ display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+.draft-card .dicon canvas{ width:72px; height:72px; display:block; image-rendering:pixelated; }
+.draft-card .dtitle{ flex:1; min-width:0; }
 
 /* ---------- upgrade rarity ---------- */
 .rarity-line{
@@ -304,11 +414,16 @@ canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
   color:var(--card-color,#7b83a1); margin-bottom:6px;
 }
 .cat-tag{ font-size:10px; letter-spacing:1px; margin-left:6px; }
-/* legendary cards get a glow so they read instantly across the row */
-.draft-card.rar-legendary{
-  box-shadow:0 0 0 3px var(--card-color), 0 0 18px rgba(255,210,63,.45);
+/* rarer cards glow so they read instantly across the row */
+.draft-card.rar-uncommon{
+  box-shadow: var(--bevel), 0 0 0 3px var(--card-color), 0 0 0 5px #04050a, 5px 5px 0 #04050a, 0 0 8px rgba(63,224,197,.25);
 }
-.draft-card.rar-rare{ box-shadow:0 0 0 3px var(--card-color), 0 0 10px rgba(155,107,255,.35); }
+.draft-card.rar-rare{
+  box-shadow: var(--bevel), 0 0 0 3px var(--card-color), 0 0 0 5px #04050a, 5px 5px 0 #04050a, 0 0 12px rgba(155,107,255,.4);
+}
+.draft-card.rar-legendary{
+  box-shadow: var(--bevel), 0 0 0 3px var(--card-color), 0 0 0 5px #04050a, 5px 5px 0 #04050a, 0 0 20px rgba(255,210,63,.5);
+}
 
 .chip.rar-uncommon{ color:var(--accent); }
 .chip.rar-rare{ color:var(--rogue); box-shadow:0 0 0 2px #3a2f5e; }
@@ -316,21 +431,33 @@ canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
 
 /* ---------- build strip (draft + summary) ---------- */
 .build-strip{
-  display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
-  max-width:660px; margin:4px 0;
+  display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+  max-width:760px; margin:4px 0;
 }
 .chip{
+  position:relative;
+  display:inline-flex; align-items:center; gap:6px;
   font-family:'Press Start 2P'; font-size:7px; letter-spacing:1px;
-  padding:4px 6px; background:#0f1220; box-shadow:0 0 0 2px #232a42;
+  padding:3px 8px 3px 3px; background:#0f1220; box-shadow:0 0 0 2px #232a42;
 }
+.chip canvas{ width:24px; height:24px; image-rendering:pixelated; display:block; flex:none; }
 .chip-ability{ color:var(--accent); }
 .chip-passive{ color:var(--dim); }
 .chip-artifact{ color:var(--gold); box-shadow:0 0 0 2px var(--gold); }
-.chip-empty{ color:#39415e; }
+.chip-empty{ color:#39415e; padding:6px 8px; }
+/* trailing marker: this artifact belongs to a series */
+.set-pip{
+  position:absolute; top:-4px; right:-4px; width:7px; height:7px;
+  background:var(--gold); box-shadow:0 0 0 2px #04050a;
+}
+.chip-set{
+  color:var(--gold); padding:6px 8px; box-shadow:0 0 0 2px #5a4a14;
+}
+.chip-set.done{ background:#3a2f0a; box-shadow:0 0 0 2px var(--gold), 0 0 10px rgba(255,210,63,.45); }
 
 #draft-buttons{ display:flex; gap:12px; }
 
 /* ---------- run summary ---------- */
-#screen-end .pixel-panel{ width:540px; }
+#screen-end .pixel-panel{ width:640px; }
 #run-log{ max-height:210px; overflow-y:auto; }
 .tier .tright{ font-size:13px; color:var(--dim); white-space:nowrap; }

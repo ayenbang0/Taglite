@@ -4,6 +4,7 @@ import { resolveWalls } from './arena.js';
 import { applyStagger } from './physics.js';
 import { playAnim } from './anim.js';
 import { kickShake } from './feel.js';
+import { spawnEventFX } from './fx.js';
 
 /* Soft shoulder-bumps between same-side fighters. Opposing hunter/prey pairs
    are deliberately excluded: tag reach equals contact distance, so they must be
@@ -49,6 +50,7 @@ export function resolveBodies(dt){
           playAnim('hit', a, {x:-nx,y:-ny});
           playAnim('hit', b, {x:nx,y:ny});
           kickShake(1, 0.1);
+          spawnEventFX('bump', (a.x+b.x)/2, (a.y+b.y)/2, {power:cs, dir:{x:nx,y:ny}});
           // BULLY: the heavier side's bump staggers the lighter one
           if(ma>mb && a.mods.bully) applyStagger(b, 0.4);
           else if(mb>ma && b.mods.bully) applyStagger(a, 0.4);
