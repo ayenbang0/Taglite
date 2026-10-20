@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TAGLITE</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ MENU / CLASS SELECT ============ -->
+  <div class="screen active" id="screen-menu">
+    <h1 class="pixel-font">TAGLITE</h1>
+    <div class="subtitle">roguelike tag &middot; three modes &middot; one loss ends the run</div>
+
+    <div class="menu-columns">
+      <div>
+        <div class="class-grid" id="class-grid"></div>
+        <div id="menu-start-row">
+          <button class="pixel-btn" id="btn-start">START RUN</button>
+          <div id="level-badge">
+            LV <b id="lv-num">1</b> &nbsp;|&nbsp; XP <b id="xp-num">0/300</b>
+            &nbsp;|&nbsp; BEST <b id="best-num">0</b>
+          </div>
+        </div>
+        <div id="next-unlock-row">NEXT: <span id="next-unlock"></span></div>
+      </div>
+      <div class="howto">
+        <h3>CONTROLS</h3>
+        <div><span class="k">W A S D</span>move (W = up the screen)</div><br>
+        <div><span class="k">SHIFT</span>sprint</div><br>
+        <div><span class="k">SPACE</span>dash</div><br>
+        <div><span class="k">E</span>class ability</div><br>
+        <div><span class="k">1-4</span>drafted abilities</div><br>
+        <div><span class="k">CLICK</span>aim &amp; fire <span class="aim-dot">&#9678;</span></div><br><br>
+        <h3>THE RUN</h3>
+        <div>Win a duel, <b>pick 1 of 3</b> upgrades, face tougher opponents. You also get picks <b>during</b> each duel. Lose once and the run is over.</div><br>
+        <div>Your side is randomised every duel.</div><br>
+        <h3>THE TWO SIDES</h3>
+        <div><b>Hunters</b> get the legs &mdash; +5% speed, +10% sprint, -5% dash cooldown.</div><br>
+        <div><b>Prey</b> get the toolkit &mdash; -10% ability cooldown.</div><br>
+        <h3>MODES</h3>
+        <div><b>Classic</b> &mdash; 1v1, <b>2:00</b>, upgrade at 1:00.</div><br>
+        <div><b>Zombie</b> (every 3rd) &mdash; 6 fighters, <b>5:00</b>, upgrades at 2:00 and 4:00. The tagged join the horde; you keep playing after you turn.</div><br>
+        <div><b>Freeze</b> (every 5th) &mdash; 3 hunt 4, <b>5:00</b>, upgrades at 2:00 and 4:00. Stand on a frozen ally to thaw them.</div><br>
+        <div>Every AI drafts its own build, so late runs get genuinely varied.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ GAME ============ -->
+  <div class="screen" id="screen-game">
+    <div id="canvas-wrap">
+      <canvas id="game" width="640" height="400"></canvas>
+      <div class="hud">
+        <div id="hud-top">
+          <div id="duel-badge" class="pixel-font">DUEL <span id="duel-num">1</span></div>
+          <div id="mode-badge" class="pixel-font" style="display:none;">CLASSIC</div>
+          <div id="role-banner" class="pixel-font">TAGGER</div>
+          <div id="timer" class="pixel-font">2:00</div>
+          <div id="team-status" class="pixel-font"></div>
+          <div id="map-mods"></div>
+        </div>
+        <div id="hud-bl">
+          <div class="ability-icon" id="icon-dash" style="--card-color:#3fe0c5;" title="DASH">
+            <span class="ico" id="ico-dash"></span>
+            <span class="key">SPC</span>
+            <div class="cd-overlay" id="cd-dash"></div>
+            <span class="cd-num" id="cdn-dash"></span>
+            <div id="dash-charges" class="charges"></div>
+          </div>
+          <div class="ability-icon" id="icon-ability">
+            <span class="ico" id="ico-class"></span>
+            <span class="key">E</span>
+            <div class="cd-overlay" id="cd-ability"></div>
+            <span class="cd-num" id="cdn-ability"></span>
+          </div>
+          <div id="slot-icons"></div>
+          <div id="sprint-col">
+            <div id="status-row"></div>
+            <div id="sprint-wrap">
+              <div id="sprint-label">SHIFT SPRINT</div>
+              <div id="sprint-bar-bg"><div id="sprint-bar"></div></div>
+            </div>
+          </div>
+          <div id="stamina-wrap" style="display:none;">
+            <div id="stamina-label">STAMINA</div>
+            <div id="stamina-bar-bg"><div id="stamina-bar"></div></div>
+          </div>
+        </div>
+        <div id="minimap-wrap"><canvas id="minimap" width="176" height="104"></canvas></div>
+        <div id="minimap-label" class="pixel-font">MAP</div>
+        <div id="announce" class="pixel-font"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DRAFT ============ -->
+  <div class="screen" id="screen-draft">
+    <div class="draft-head">
+      <div id="draft-result" class="pixel-font">SURVIVED</div>
+      <div class="draft-sub" id="draft-sub-line">DUEL <b>1</b> CLEARED &mdash; TAKE ONE</div>
+      <div id="draft-next" class="pixel-font"></div>
+    </div>
+    <div class="draft-grid" id="draft-options"></div>
+    <div class="build-strip" id="draft-build"></div>
+    <div id="draft-buttons">
+      <button class="pixel-btn ghost" id="btn-reroll">REROLL (1)</button>
+    </div>
+  </div>
+
+  <!-- ============ RUN SUMMARY ============ -->
+  <div class="screen" id="screen-end">
+    <div class="pixel-panel">
+      <div id="end-result" class="pixel-font">RUN OVER</div>
+      <div id="end-sub"></div>
+      <div id="xp-row"></div>
+      <div class="build-strip" id="end-build"></div>
+      <div class="tree" id="run-log"></div>
+      <div id="end-buttons">
+        <button class="pixel-btn ghost" id="btn-menu">CHANGE CLASS</button>
+        <button class="pixel-btn" id="btn-again">RUN AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<div class="footer-credit">TAGLITE</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

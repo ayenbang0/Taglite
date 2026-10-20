@@ -1,0 +1,336 @@
+:root{
+  --bg:#0b0d16;
+  --panel:#141826;
+  --panel-edge:#04050a;
+  --ink:#e9ecf4;
+  --dim:#7b83a1;
+  --accent:#3fe0c5;
+  --danger:#ff5470;
+  --gold:#ffd23f;
+  --rogue:#9b6bff;
+  --tank:#ff9f45;
+  --scout:#3fe0c5;
+  --trickster:#ff5ec4;
+  /* new classes - picked to stay clear of the reserved semantic colors
+     (--danger / --gold / --accent carry meaning in the HUD) */
+  --trapper:#a8a23f;
+  --hunter:#e0673f;
+  --phantom:#8fd6ff;
+  --anchor:#5c6b9b;
+}
+*{box-sizing:border-box;}
+html,body{
+  margin:0; padding:0; height:100%;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:'VT323', monospace;
+  overflow:hidden;
+  -webkit-user-select:none; user-select:none;
+}
+.pixel-font{ font-family:'Press Start 2P', monospace; }
+#app{
+  position:relative;
+  width:100%; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  background:
+    radial-gradient(circle at 50% 0%, #1a2036 0%, #0b0d16 60%);
+}
+.screen{
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  width:100%; height:100%;
+  padding:16px;
+  overflow-y:auto;   /* tall content (8 classes, long run logs) stays reachable */
+  /* Centre when it fits, but fall back to top-aligned when it doesn't.
+     Plain `center` overflows in BOTH directions and the top half becomes
+     unreachable, since you can only ever scroll downward. */
+  justify-content:center;
+  justify-content:safe center;
+}
+.screen.active{ display:flex; }
+
+/* ---------- pixel panel ---------- */
+.pixel-panel{
+  background:var(--panel);
+  box-shadow:
+    0 0 0 4px var(--panel-edge),
+    0 0 0 8px #232a42,
+    8px 8px 0 0 rgba(0,0,0,.5);
+  padding:20px;
+  image-rendering:pixelated;
+}
+button.pixel-btn{
+  font-family:'Press Start 2P', monospace;
+  font-size:11px;
+  background:var(--accent);
+  color:#04241f;
+  border:none;
+  padding:12px 18px;
+  cursor:pointer;
+  box-shadow:0 0 0 3px #04050a, 4px 4px 0 0 rgba(0,0,0,.6);
+  letter-spacing:1px;
+  transition:transform .06s ease;
+}
+button.pixel-btn:hover{ transform:translate(-2px,-2px); }
+button.pixel-btn:active{ transform:translate(1px,1px); box-shadow:0 0 0 3px #04050a, 1px 1px 0 0 rgba(0,0,0,.6);}
+button.pixel-btn.ghost{
+  background:transparent; color:var(--accent);
+  box-shadow:0 0 0 3px var(--accent);
+}
+button.pixel-btn:disabled{
+  background:#39415e; color:#6b7290; cursor:not-allowed; box-shadow:0 0 0 3px #04050a;
+}
+button.pixel-btn:disabled:hover{ transform:none; }
+
+/* ---------- title ---------- */
+#screen-menu h1{
+  font-size:44px;
+  margin:0 0 4px 0;
+  letter-spacing:6px;
+  color:var(--gold);
+  text-shadow:4px 4px 0 #7a4a00, 0 0 24px rgba(255,210,63,.4);
+}
+#screen-menu .subtitle{
+  font-size:20px; color:var(--dim); margin-bottom:22px; letter-spacing:2px;
+}
+.menu-columns{ display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; justify-content:center; }
+.class-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+}
+.class-card{
+  width:190px;
+  padding:12px;
+  background:#0f1220;
+  box-shadow:0 0 0 3px #232a42;
+  cursor:pointer;
+}
+.class-card.selected{ box-shadow:0 0 0 3px var(--card-color,#fff), 0 0 18px var(--card-color,#fff); }
+.class-card .cname{ font-family:'Press Start 2P'; font-size:11px; margin-bottom:6px; color:var(--card-color,#fff); }
+.class-card .cline{ font-size:16px; color:var(--ink); margin:2px 0; line-height:1.25; }
+.class-card .clabel{ font-size:12px; color:var(--dim); letter-spacing:1px; }
+.swatch{ display:inline-block; width:10px; height:10px; margin-right:6px; }
+
+.howto{
+  width:230px; padding:14px; background:#0f1220; box-shadow:0 0 0 3px #232a42;
+  font-size:16px; line-height:1.5;
+}
+.howto h3{ font-family:'Press Start 2P'; font-size:11px; color:var(--accent); margin:0 0 10px 0; }
+.howto .k{ display:inline-block; background:#232a42; padding:1px 7px; margin-right:6px; font-size:14px; color:var(--gold); }
+
+#menu-start-row{ margin-top:18px; display:flex; gap:12px; align-items:center; }
+#level-badge{ font-size:15px; color:var(--dim); }
+#level-badge b{ color:var(--gold); }
+
+/* ---------- game screen ---------- */
+#screen-game{ position:relative; }
+#canvas-wrap{ position:relative; image-rendering:pixelated; }
+canvas#game{
+  image-rendering:pixelated;
+  display:block;
+  /* main.js fitCanvas() sets an integer-multiple width of the 640x400 pixel
+     grid and the --ui HUD scale. The fallback below only applies before JS runs.
+     targeting.js maps clicks via getBoundingClientRect, so aiming follows. */
+  width:min(1280px, 94vw, calc((100vh - 48px) * 1.6));
+  height:auto;
+  aspect-ratio:640/400;
+  box-shadow:0 0 0 4px var(--panel-edge), 0 0 0 8px #232a42, 10px 10px 0 0 rgba(0,0,0,.55);
+}
+.hud{
+  position:absolute; inset:0; pointer-events:none;
+  font-family:'Press Start 2P', monospace;
+}
+#hud-top{
+  position:absolute; top:16px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+}
+#role-banner{
+  font-size:13px; padding:6px 14px; letter-spacing:2px;
+  box-shadow:0 0 0 3px #04050a;
+}
+#role-banner.tagger{ background:var(--danger); color:#320012; }
+#role-banner.runner{ background:var(--scout); color:#04241f; }
+#timer{ font-size:26px; color:var(--gold); text-shadow:3px 3px 0 #000; }
+#timer.low{ color:var(--danger); animation:pulse .5s infinite; }
+@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+#hud-bl{
+  position:absolute; bottom:14px; left:14px; display:flex; gap:10px; align-items:flex-end;
+}
+.ability-icon{
+  width:44px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42;
+  position:relative; display:flex; align-items:center; justify-content:center;
+  font-size:9px; text-align:center; color:var(--ink);
+}
+.ability-icon .cd-overlay{
+  position:absolute; left:0; right:0; bottom:0; background:rgba(0,0,0,.72);
+}
+.ability-icon .key{
+  position:absolute; top:-10px; left:-10px; background:#232a42; font-size:8px; padding:2px 4px; color:var(--gold);
+}
+#stamina-wrap{ width:80px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:6px; }
+#stamina-label{ font-size:7px; color:var(--dim); margin-bottom:4px; }
+#stamina-bar-bg{ width:100%; height:10px; background:#232a42; }
+#stamina-bar{ height:100%; background:var(--scout); width:100%; }
+
+#sprint-wrap{ width:80px; height:44px; background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:6px; }
+#sprint-label{ font-size:7px; color:var(--dim); margin-bottom:4px; }
+#sprint-bar-bg{ width:100%; height:10px; background:#232a42; }
+#sprint-bar{ height:100%; background:var(--gold); width:100%; transition:background .15s ease; }
+#sprint-bar.winded{ background:var(--tank); }   /* into the taper zone */
+#sprint-bar.fatigued{ background:var(--danger); }
+
+#minimap-wrap{
+  position:absolute; top:14px; right:14px; width:110px; height:74px;
+  background:#0f1220; box-shadow:0 0 0 3px #232a42;
+}
+canvas#minimap{ width:100%; height:100%; image-rendering:pixelated; }
+#minimap-label{ position:absolute; top:14px; right:14px; font-size:7px; color:var(--dim); transform:translateY(-16px); }
+
+#announce{
+  position:absolute; top:44%; left:50%; transform:translate(-50%,-50%);
+  font-size:34px; letter-spacing:4px; color:var(--gold);
+  text-shadow:4px 4px 0 #000;
+  opacity:0; transition:opacity .2s ease;
+}
+#announce.show{ opacity:1; }
+
+/* ---------- round end ---------- */
+#screen-end .pixel-panel{ width:480px; text-align:center; }
+#end-result{ font-size:26px; margin-bottom:10px; letter-spacing:2px; }
+#end-result.win{ color:var(--gold); }
+#end-result.lose{ color:var(--danger); }
+#end-sub{ font-size:16px; color:var(--dim); margin-bottom:16px; }
+#xp-row{ font-size:17px; margin-bottom:18px; color:var(--accent); }
+
+.tree{ display:flex; flex-direction:column; gap:8px; margin-bottom:18px; text-align:left; }
+.tier{
+  display:flex; align-items:center; justify-content:space-between;
+  background:#0f1220; box-shadow:0 0 0 3px #232a42; padding:8px 10px;
+}
+.tier .tinfo{ font-size:15px; }
+.tier .tname{ color:var(--ink); }
+.tier .tdesc{ color:var(--dim); font-size:13px; }
+.tier button{ font-size:9px; padding:6px 10px; }
+.tier.owned{ box-shadow:0 0 0 3px var(--gold); }
+.tier.locked button{ opacity:.5; }
+
+#end-buttons{ display:flex; gap:12px; justify-content:center; }
+
+.footer-credit{ position:fixed; bottom:6px; right:10px; font-size:11px; color:#333c5c; }
+
+/* =========================================================================
+   ROGUELIKE EXPANSION
+   Everything below extends the existing components rather than introducing a
+   new visual language: same two fonts, same pixel-bevel box-shadows, same
+   palette variables.
+   ========================================================================= */
+
+/* ---------- class select additions ---------- */
+.class-card .cdiff{ font-size:7px; color:var(--dim); margin-left:4px; }
+.class-card .cflavor{ font-size:13px; color:var(--dim); font-style:italic; margin-top:6px; line-height:1.2; }
+.class-card.locked{ opacity:.45; cursor:not-allowed; }
+.class-card.locked:hover{ transform:none; }
+.class-card .clocked{
+  font-family:'Press Start 2P'; font-size:8px; color:var(--danger);
+  margin:6px 0; letter-spacing:1px;
+}
+.aim-dot{ color:var(--gold); }
+
+#next-unlock-row{ margin-top:8px; font-size:14px; color:var(--dim); letter-spacing:1px; }
+#next-unlock{ color:var(--accent); }
+
+/* ---------- in-game HUD additions ---------- */
+#duel-badge{
+  font-size:9px; color:var(--dim); letter-spacing:2px; margin-bottom:2px;
+}
+#duel-badge span{ color:var(--gold); }
+#mode-badge{
+  font-size:10px; letter-spacing:3px; margin-bottom:3px;
+  text-shadow:2px 2px 0 #000;
+}
+#team-status{
+  font-size:9px; color:var(--dim); letter-spacing:2px; margin-top:3px;
+}
+/* frozen players lose their controls - grey the bar so it reads as locked */
+#hud-bl.frozen{ opacity:.35; filter:saturate(.2); }
+#map-mods{ display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; justify-content:center; }
+.mod-tag{
+  font-family:'Press Start 2P'; font-size:7px; letter-spacing:1px;
+  background:#0f1220; color:var(--rogue);
+  padding:3px 6px; box-shadow:0 0 0 2px #232a42;
+}
+
+#slot-icons{ display:flex; gap:10px; }
+.ability-icon .ab-name{ font-size:7px; line-height:1.1; padding:0 2px; }
+.ability-icon .charges{
+  position:absolute; bottom:-6px; right:-6px; background:#232a42;
+  font-size:8px; padding:1px 4px; color:var(--accent);
+}
+.ability-icon .aim-dot{
+  position:absolute; top:-8px; right:-6px; font-size:9px;
+}
+.ability-icon.armed{ box-shadow:0 0 0 3px var(--gold), 0 0 12px rgba(255,210,63,.5); }
+
+/* ---------- draft screen ---------- */
+#screen-draft{ gap:14px; }
+.draft-head{ text-align:center; }
+#draft-result{
+  font-size:20px; color:var(--gold); letter-spacing:3px;
+  text-shadow:3px 3px 0 #000; margin-bottom:6px;
+}
+.draft-sub{ font-size:17px; color:var(--dim); letter-spacing:2px; }
+.draft-sub b{ color:var(--accent); }
+#draft-next{
+  font-size:9px; letter-spacing:2px; margin-top:8px;
+  text-shadow:2px 2px 0 #000;
+}
+
+.draft-grid{
+  display:flex; gap:14px; align-items:stretch;
+  flex-wrap:wrap; justify-content:center; max-width:100%;
+}
+.draft-card{
+  width:210px; max-width:100%;
+  display:flex; flex-direction:column;
+  transition:transform .06s ease;
+}
+.draft-card:hover{ transform:translate(-2px,-2px); }
+.draft-card .cname{ font-size:10px; line-height:1.4; }
+
+/* ---------- upgrade rarity ---------- */
+.rarity-line{
+  font-family:'Press Start 2P'; font-size:7px; letter-spacing:2px;
+  color:var(--card-color,#7b83a1); margin-bottom:6px;
+}
+.cat-tag{ font-size:10px; letter-spacing:1px; margin-left:6px; }
+/* legendary cards get a glow so they read instantly across the row */
+.draft-card.rar-legendary{
+  box-shadow:0 0 0 3px var(--card-color), 0 0 18px rgba(255,210,63,.45);
+}
+.draft-card.rar-rare{ box-shadow:0 0 0 3px var(--card-color), 0 0 10px rgba(155,107,255,.35); }
+
+.chip.rar-uncommon{ color:var(--accent); }
+.chip.rar-rare{ color:var(--rogue); box-shadow:0 0 0 2px #3a2f5e; }
+.chip.rar-legendary{ color:var(--gold); box-shadow:0 0 0 2px var(--gold); }
+
+/* ---------- build strip (draft + summary) ---------- */
+.build-strip{
+  display:flex; flex-wrap:wrap; gap:6px; justify-content:center;
+  max-width:660px; margin:4px 0;
+}
+.chip{
+  font-family:'Press Start 2P'; font-size:7px; letter-spacing:1px;
+  padding:4px 6px; background:#0f1220; box-shadow:0 0 0 2px #232a42;
+}
+.chip-ability{ color:var(--accent); }
+.chip-passive{ color:var(--dim); }
+.chip-artifact{ color:var(--gold); box-shadow:0 0 0 2px var(--gold); }
+.chip-empty{ color:#39415e; }
+
+#draft-buttons{ display:flex; gap:12px; }
+
+/* ---------- run summary ---------- */
+#screen-end .pixel-panel{ width:540px; }
+#run-log{ max-height:210px; overflow-y:auto; }
+.tier .tright{ font-size:13px; color:var(--dim); white-space:nowrap; }
